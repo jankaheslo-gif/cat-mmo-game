@@ -1,0 +1,12 @@
+this to do next
+you see the cat animated there? the new model I just finished animating. can you assign - death animation to loosing all vitality points. fall to second part of the jump when upon descending. idle is standing, first part of the jump animation for the ascending part of the jump, fall animation on the descending, run for run, walk  for walk, sit for sitting, crouch for crouch lock mode. also make running backwards impossible, it goes at the speed of walking backwards.  
+
+
+
+second jump needs to start also with jump start, not jump end and ending with jump end, only one jumpstart and jumpend per 0.3 s -> cooldown. tail is still messed up. but just leave the tail for now.
+
+Let me look at the full jump sequence logic:
+
+Read index.html, lines 1680 to 1720
+
+I see the issue. When jumpEndTimer finishes, it resets jumpPhase to 'none', which is correct. But the problem is that we need to add a cooldown for jumpStart/jumpEnd animations so they can't spam. Let me add that and ensure the jump sequence starts properly:

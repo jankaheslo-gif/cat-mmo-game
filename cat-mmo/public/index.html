@@ -1,0 +1,1839 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Cat MMO</title>
+  <style>
+    body { margin:0; overflow:hidden; background:#000; }
+    canvas { display:block; }
+    #ui-overlay {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .attack-button {
+      pointer-events: auto;
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.35);
+      background: rgba(255,255,255,0.12);
+      color: #fff;
+      font-size: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 0.2s ease, background 0.2s ease, opacity 0.2s ease;
+      opacity: 0.9;
+    }
+    .attack-button:hover {
+      transform: scale(1.05);
+      background: rgba(255,255,255,0.18);
+    }
+    .attack-button:disabled {
+      opacity: 0.4;
+      cursor: default;
+      transform: none;
+    }
+    .attack-button.active {
+      box-shadow: 0 0 12px rgba(255,255,255,0.55);
+    }
+    .attack-cooldown {
+      width: 70px;
+      height: 8px;
+      border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.08);
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .attack-cooldown-fill {
+      width: 100%;
+      height: 100%;
+      background: rgba(255,255,255,0.9);
+      transform-origin: left center;
+      transform: scaleX(1);
+      transition: transform 0.1s linear;
+    }
+
+    #hud-top-left {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+      padding: 12px;
+      background: rgba(8, 12, 20, 0.72);
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 14px;
+      backdrop-filter: blur(6px);
+      pointer-events: none;
+      z-index: 12;
+    }
+
+    .hud-bar-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      font: 11px system-ui, sans-serif;
+      color: #fff;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .hud-bar {
+      position: relative;
+      width: 220px;
+      height: 18px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.08);
+      overflow: hidden;
+    }
+
+    .hud-bar.hud-xp {
+      height: 10px;
+    }
+
+    .hud-bar-fill {
+      height: 100%;
+      transform-origin: left center;
+      transform: scaleX(1);
+      transition: transform 0.1s linear, background 0.2s ease;
+    }
+
+    #vitalityFill { background: #ff4d4d; }
+    #energyFill { background: #f6d644; }
+    #xpFill { background: #f5f5f5; }
+
+    .loading-overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(0, 0, 0, 0.82);
+      color: #ffffff;
+      font: 18px system-ui, sans-serif;
+      text-align: center;
+      z-index: 20;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s ease, visibility 0.2s ease;
+      pointer-events: none;
+    }
+
+    .loading-overlay.show {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+    }
+
+    .hud-bar-value {
+      min-width: 46px;
+      text-align: right;
+      color: rgba(255,255,255,0.95);
+    }
+  </style>
+</head>
+<body>
+  <div id="ui-overlay">
+    <button id="attackButton" class="attack-button" title="Attack (E)">🗡️</button>
+    <div class="attack-cooldown"><div id="attackCooldown" class="attack-cooldown-fill"></div></div>
+  </div>
+  <div id="modelLoadingOverlay" class="loading-overlay">Loading cat model…</div>
+  <div id="hud-top-left">
+    <div class="hud-bar-row">
+      <span>Vitality</span>
+      <span id="vitalityValue" class="hud-bar-value">100 / 100</span>
+    </div>
+    <div class="hud-bar">
+      <div id="vitalityFill" class="hud-bar-fill"></div>
+    </div>
+    <div class="hud-bar-row">
+      <span>Energy</span>
+      <span id="energyValue" class="hud-bar-value">100 / 100</span>
+    </div>
+    <div class="hud-bar">
+      <div id="energyFill" class="hud-bar-fill"></div>
+    </div>
+    <div class="hud-bar-row">
+      <span>XP</span>
+      <span id="xpText" class="hud-bar-value">0%</span>
+    </div>
+    <div class="hud-bar hud-xp">
+      <div id="xpFill" class="hud-bar-fill"></div>
+    </div>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tween.js@18/dist/tween.umd.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="config/stats.js"></script>
+  <script src="cat.js"></script>
+  <script>
+    const socket = io();
+    let scene, camera, renderer, cat, mouse;
+    let catModel = null;
+    let mixer = null;
+    let catActions = {};
+    let currentCatAction = '';
+    let hasCatAnimations = false;
+    let catAnimator = null; // NEW: Our custom animator
+    let attackPaw = null;
+    let attackPawOriginalRotation = null;
+    const clock = new THREE.Clock();
+    const keys = {};
+    let lastAttackTime = -2000;
+    const attackCooldown = 2000;
+    const attackAnimationDuration = 1000;
+    let isAttacking = false;
+    let attackVisual = null;
+    let attackButton, attackCooldownFill;
+    let vitality = 100;
+    let energy = 100;
+    let xp = 0;
+    let lastEnergyRegen = Date.now();
+    let vitalityFill, energyFill, xpFill;
+    let vitalityValueText, energyValueText, xpText;
+    const attackMaxDistance = 20;
+    let isCrouched = false;
+    let crouchChargeStart = 0;
+    let crouchReady = false;
+    let crouchTargetIndex = 0;
+    let crouchTargets = [];
+    let crouchReticle = null;
+    let selectedTargetIndicator = null;
+    let crouchCameraFocus = new THREE.Vector3();
+    let cameraPositionTarget = new THREE.Vector3();
+    let cameraLookTarget = new THREE.Vector3();
+
+    function lerpAngle(a, b, t) {
+      let delta = ((b - a + Math.PI) % (2 * Math.PI)) - Math.PI;
+      return a + delta * t;
+    }
+
+    function rotateCatTowards(position, t = 0.45) {
+      if (!cat) return;
+      const direction = position.clone().sub(cat.position);
+      direction.y = 0;
+      if (direction.lengthSq() < 0.0001) return;
+      const targetY = Math.atan2(direction.x, direction.z);
+      cat.rotation.y = lerpAngle(cat.rotation.y, targetY, t);
+    }
+
+    let specialJumpActive = false;
+    let specialJumpData = null;
+    let backHopActive = false;
+    let backHopData = null;
+    let impactEffects = [];
+    let walkableObstacles = [];
+    let lastBackHopTime = 0;
+    const backHopCooldown = 1000;
+    let lastFrameTime = Date.now();
+    const crouchChargeDuration = 2000;
+    const crouchSpeedMultiplier = 0.8;
+    const maxCrouchLockDistance = 45;
+    const runJumpMultiplier = 1.5;
+    let mobs = [];
+    let mobZone = { minX: window.mobStats.mouse.zoneMinX, maxX: window.mobStats.mouse.zoneMaxX, minZ: window.mobStats.mouse.zoneMinZ, maxZ: window.mobStats.mouse.zoneMaxZ };
+
+    class Mob {
+      constructor(type, x, z) {
+        this.type = type;
+        this.config = window.mobStats[type];
+        this.name = this.config.name;
+        this.level = this.config.level;
+        this.mesh = this.createMesh();
+        this.mesh.position.set(x, 0, z);
+        this.hp = this.config.hp;
+        this.maxHp = this.config.hp;
+        this.state = 'wandering';
+        this.target = null;
+        this.wanderTimer = 0;
+        this.wanderDuration = Math.random() * 5000 + 2000;
+        this.respawnTimer = 0;
+        this.lastRegen = Date.now();
+        this.velocity = new THREE.Vector3();
+        this.rotation = 0;
+        this.wanderTarget = { x: x, z: z };
+        this.lastDamageTime = 0;
+        this.healthBar = null;
+        this.healthLabel = null;
+        this.mesh.mob = this;
+        scene.add(this.mesh);
+        this.createHealthBar();
+      }
+
+      createMesh() {
+        const mobGroup = new THREE.Group();
+        // Body
+        const bodyGeo = new THREE.SphereGeometry(0.3, 8, 8);
+        const bodyMat = new THREE.MeshPhongMaterial({ color: this.type === 'rat' ? 0x654321 : 0x808080 });
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        body.scale.set(1, 0.5, 1.5);
+        mobGroup.add(body);
+        // Head
+        const headGeo = new THREE.SphereGeometry(0.2, 8, 8);
+        const head = new THREE.Mesh(headGeo, bodyMat);
+        head.position.set(0, 0.2, 0.3);
+        mobGroup.add(head);
+        // Ears
+        const earGeo = new THREE.SphereGeometry(0.05, 8, 8);
+        const leftEar = new THREE.Mesh(earGeo, bodyMat);
+        leftEar.position.set(-0.1, 0.3, 0.2);
+        mobGroup.add(leftEar);
+        const rightEar = new THREE.Mesh(earGeo, bodyMat);
+        rightEar.position.set(0.1, 0.3, 0.2);
+        mobGroup.add(rightEar);
+        // Eyes
+        const eyeGeo = new THREE.SphereGeometry(0.03, 8, 8);
+        const eyeMat = new THREE.MeshPhongMaterial({ color: 0x000000 });
+        const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+        leftEye.position.set(-0.08, 0.25, 0.4);
+        mobGroup.add(leftEye);
+        const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+        rightEye.position.set(0.08, 0.25, 0.4);
+        mobGroup.add(rightEye);
+        // Whiskers for rats
+        if (this.type === 'rat') {
+          const whiskerGeo = new THREE.CylinderGeometry(0.005, 0.005, 0.15);
+          const whiskerMat = new THREE.MeshPhongMaterial({ color: 0xffffff });
+          const leftWhisker1 = new THREE.Mesh(whiskerGeo, whiskerMat);
+          leftWhisker1.position.set(-0.12, 0.22, 0.38);
+          leftWhisker1.rotation.z = Math.PI / 6;
+          mobGroup.add(leftWhisker1);
+          const leftWhisker2 = new THREE.Mesh(whiskerGeo, whiskerMat);
+          leftWhisker2.position.set(-0.12, 0.18, 0.38);
+          leftWhisker2.rotation.z = -Math.PI / 6;
+          mobGroup.add(leftWhisker2);
+          const rightWhisker1 = new THREE.Mesh(whiskerGeo, whiskerMat);
+          rightWhisker1.position.set(0.12, 0.22, 0.38);
+          rightWhisker1.rotation.z = -Math.PI / 6;
+          mobGroup.add(rightWhisker1);
+          const rightWhisker2 = new THREE.Mesh(whiskerGeo, whiskerMat);
+          rightWhisker2.position.set(0.12, 0.18, 0.38);
+          rightWhisker2.rotation.z = Math.PI / 6;
+          mobGroup.add(rightWhisker2);
+        }
+        // Tail
+        const tailGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.4);
+        const tail = new THREE.Mesh(tailGeo, bodyMat);
+        tail.position.set(0, 0.1, -0.4);
+        tail.rotation.x = Math.PI / 6;
+        mobGroup.add(tail);
+        // Legs
+        const legGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.2);
+        const legMat = new THREE.MeshPhongMaterial({ color: this.type === 'rat' ? 0x4B2F20 : 0x606060 });
+        const frontLeftLeg = new THREE.Mesh(legGeo, legMat);
+        frontLeftLeg.position.set(-0.15, -0.1, 0.1);
+        mobGroup.add(frontLeftLeg);
+        const frontRightLeg = new THREE.Mesh(legGeo, legMat);
+        frontRightLeg.position.set(0.15, -0.1, 0.1);
+        mobGroup.add(frontRightLeg);
+        const backLeftLeg = new THREE.Mesh(legGeo, legMat);
+        backLeftLeg.position.set(-0.15, -0.1, -0.1);
+        mobGroup.add(backLeftLeg);
+        const backRightLeg = new THREE.Mesh(legGeo, legMat);
+        backRightLeg.position.set(0.15, -0.1, -0.1);
+        mobGroup.add(backRightLeg);
+        // Scale rats larger
+        if (this.type === 'rat') {
+          mobGroup.scale.set(1.3, 1.3, 1.3);
+        }
+        return mobGroup;
+      }
+
+      createHealthBar() {
+        const scale = 5/3;
+        const healthGroup = new THREE.Group();
+        healthGroup.position.set(0, 1.4 * scale, 0);
+
+        const backgroundGeo = new THREE.PlaneGeometry(2.4 * scale * 3, 0.42 * scale);
+        const backgroundMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+        const background = new THREE.Mesh(backgroundGeo, backgroundMat);
+        healthGroup.add(background);
+
+        const fillGeo = new THREE.PlaneGeometry(2.3 * scale * 3, 0.22 * scale * 3);
+        fillGeo.translate(1.15 * scale * 3, 0, 0);
+        const fillMat = new THREE.MeshBasicMaterial({ color: 0x44ff44 });
+        const fill = new THREE.Mesh(fillGeo, fillMat);
+        fill.position.set(-1.15 * scale * 3, 0, 0.002);
+        healthGroup.add(fill);
+
+        const labelSprite = this.createLabelSprite(`Lvl. ${this.level} ${this.name} | ${Math.round(this.hp)}/${this.maxHp}`, scale);
+        labelSprite.position.set(0, 0.5 * scale, 0);
+        healthGroup.add(labelSprite);
+
+        this.healthGroup = healthGroup;
+        this.healthBar = fill;
+        this.healthLabel = labelSprite;
+        this.mesh.add(healthGroup);
+        this.updateHealthBar();
+      }
+
+      createLabelSprite(text, scale = 1) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 512 * scale;
+        canvas.height = 128 * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.font = `bold ${84 * scale * 0.8 * 0.5}px Arial`;
+        ctx.fillStyle = '#FFFFFF';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+        const sprite = new THREE.Sprite(material);
+        sprite.scale.set(8 * scale, 1.8 * scale, 1);
+        return sprite;
+      }
+
+      updateHealthLabel(text) {
+        if (!this.healthLabel) return;
+        const scale = 5/3;
+        const canvas = this.healthLabel.material.map.image;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.font = `bold ${84 * scale * 0.8 * 0.5}px Arial`;
+        ctx.fillStyle = '#FFFFFF';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+        this.healthLabel.material.map.needsUpdate = true;
+      }
+
+      updateHealthBar() {
+        if (!this.healthBar) return;
+        const ratio = Math.max(0, this.hp / this.maxHp);
+        this.healthBar.scale.x = ratio;
+        const color = ratio > 0.5 ? 0x44ff44 : ratio > 0.2 ? 0xffdd44 : 0xff4444;
+        this.healthBar.material.color.setHex(color);
+        this.updateHealthLabel(`Lvl. ${this.level} ${this.name} | ${Math.round(this.hp)}/${this.maxHp}`);
+      }
+
+      update(deltaTime) {
+        if (this.state === 'caught') {
+          if (this.healthGroup) this.healthGroup.visible = false;
+          this.respawnTimer -= deltaTime;
+          if (this.respawnTimer <= 0) {
+            this.respawn();
+          }
+          return;
+        }
+        if (this.healthGroup) this.healthGroup.visible = true;
+        if (this.state !== 'chasing' && Date.now() - this.lastRegen > 3000) {
+          this.hp = Math.min(this.maxHp, this.hp + this.config.regen);
+          this.lastRegen = Date.now();
+        }
+        if (this.state === 'wandering') {
+          this.wanderTimer += deltaTime;
+          if (this.wanderTimer > this.wanderDuration) {
+            this.chooseNewWanderTarget();
+            this.wanderTimer = 0;
+            this.wanderDuration = Math.random() * 5000 + 2000;
+          }
+          // Move towards wander target
+          const targetPos = new THREE.Vector3(this.wanderTarget.x, 0, this.wanderTarget.z);
+          const direction = targetPos.clone().sub(this.mesh.position).normalize();
+          this.velocity.copy(direction).multiplyScalar(this.config.wanderSpeed);
+          this.mesh.position.add(this.velocity);
+          this.mesh.rotation.y = Math.atan2(direction.x, direction.z);
+          // Check if reached target
+          if (this.mesh.position.distanceTo(targetPos) < 0.5) {
+            this.wanderTimer = this.wanderDuration;
+          }
+        } else if (this.state === 'chasing') {
+          // Check if cat is still in zone
+          if (cat.position.x < mobZone.minX || cat.position.x > mobZone.maxX || cat.position.z < mobZone.minZ || cat.position.z > mobZone.maxZ) {
+            this.state = 'wandering';
+            this.chooseNewWanderTarget();
+            return;
+          }
+          // Maintain 2m distance in front of cat
+          const forward = new THREE.Vector3(Math.sin(cat.rotation.y), 0, Math.cos(cat.rotation.y));
+          const targetPos = cat.position.clone().add(forward.multiplyScalar(2));
+          const direction = targetPos.clone().sub(this.mesh.position).normalize();
+          this.velocity.copy(direction).multiplyScalar(this.config.chaseSpeed);
+          this.mesh.position.add(this.velocity);
+          this.mesh.rotation.y = Math.atan2(direction.x, direction.z);
+
+          // Damage cat if close
+          const distance = this.mesh.position.distanceTo(cat.position);
+          if (distance < 3 && Date.now() - this.lastDamageTime > 2000) {
+            vitality = Math.max(0, vitality - 1);
+            updateHud();
+            this.lastDamageTime = Date.now();
+          }
+        }
+        this.updateHealthBar();
+        // Make health bar face camera
+        if (this.healthBar) {
+          this.healthBar.parent.lookAt(camera.position);
+        }
+      }
+
+      chooseNewWanderTarget() {
+        this.wanderTarget = {
+          x: mobZone.minX + Math.random() * (mobZone.maxX - mobZone.minX),
+          z: mobZone.minZ + Math.random() * (mobZone.maxZ - mobZone.minZ)
+        };
+      }
+
+      takeDamage(damage) {
+        this.hp -= damage;
+        // Flash red
+        this.mesh.children.forEach(child => {
+          if (child.material) {
+            child.material.color.setHex(0xFF0000);
+            setTimeout(() => child.material.color.setHex(0x808080), 200);
+          }
+        });
+        if (this.hp <= 0) {
+          this.catch();
+        } else if (this.state === 'wandering') {
+          this.state = 'chasing';
+        }
+      }
+
+      catch() {
+        this.state = 'caught';
+        this.respawnTimer = 10000;
+        // Remove from targets and obstacles
+        const targetIndex = crouchTargets.indexOf(this.mesh);
+        if (targetIndex > -1) crouchTargets.splice(targetIndex, 1);
+        const obstacleIndex = walkableObstacles.indexOf(this.mesh);
+        if (obstacleIndex > -1) walkableObstacles.splice(obstacleIndex, 1);
+        // Fade out
+        this.mesh.children.forEach(child => {
+          if (child.material) {
+            child.material.transparent = true;
+            const fadeOut = () => {
+              child.material.opacity -= 0.02;
+              if (child.material.opacity > 0) {
+                requestAnimationFrame(fadeOut);
+              }
+            };
+            fadeOut();
+          }
+        });
+        // Award XP
+        xp += this.config.xpReward;
+        updateHud();
+      }
+
+      respawn() {
+        this.hp = this.maxHp;
+        this.state = 'wandering';
+        this.wanderTimer = 0;
+        this.respawnTimer = 0;
+        const spawn = this.config.spawnPoints[Math.floor(Math.random() * this.config.spawnPoints.length)];
+        this.mesh.position.set(spawn.x, 0, spawn.z);
+        this.chooseNewWanderTarget();
+        // Add back to targets (mob movement no longer blocks the player)
+        crouchTargets.push(this.mesh);
+        this.mesh.children.forEach(child => {
+          if (child.material) {
+            child.material.opacity = 1;
+            child.material.transparent = false;
+          }
+        });
+      }
+    }
+
+    function init() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x112233); // dark blue sky
+
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      document.body.appendChild(renderer.domElement);
+
+      attackButton = document.getElementById('attackButton');
+      attackCooldownFill = document.getElementById('attackCooldown');
+      vitalityFill = document.getElementById('vitalityFill');
+      energyFill = document.getElementById('energyFill');
+      xpFill = document.getElementById('xpFill');
+      vitalityValueText = document.getElementById('vitalityValue');
+      energyValueText = document.getElementById('energyValue');
+      xpText = document.getElementById('xpText');
+      const modelLoadingOverlay = document.getElementById('modelLoadingOverlay');
+      const showModelLoading = (text = 'Loading cat model…') => {
+        if (modelLoadingOverlay) {
+          modelLoadingOverlay.textContent = text;
+          modelLoadingOverlay.classList.add('show');
+        }
+      };
+      const hideModelLoading = () => {
+        if (modelLoadingOverlay) {
+          modelLoadingOverlay.classList.remove('show');
+        }
+      };
+      attackButton.addEventListener('click', () => {
+        if (isCrouched && crouchReady) {
+          performSpecialJump();
+        } else {
+          performAttack();
+        }
+      });
+      updateHud();
+
+      // === VISIBLE GROUND ===
+      const groundGeo = new THREE.PlaneGeometry(300, 300);
+      const groundMat = new THREE.MeshBasicMaterial({ color: 0x44AA44 });
+      const ground = new THREE.Mesh(groundGeo, groundMat);
+      ground.rotation.x = -Math.PI / 2;
+      scene.add(ground);
+
+      // Add lighting for Phong materials
+      const directionalLight = new THREE.DirectionalLight(0xFFFFFF, 1);
+      directionalLight.position.set(10, 10, 5);
+      scene.add(directionalLight);
+      const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+      scene.add(ambientLight);
+
+      // === VISIBLE CAT ===
+      cat = new THREE.Group();
+      scene.add(cat);
+
+      const loader = new THREE.GLTFLoader();
+      const animationSources = {
+        idle: 'models/cat_idle/animations/idle/model_idle.glb',
+        walk: 'models/cat_walk/animations/walk/model_walk.glb',
+        run: 'models/cat_run/animations/run/model_run.glb',
+        jumpStart: 'models/cat_jump_start/animations/jump_start/model_jump_start.glb',
+        jumpAir: 'models/cat_jump_air/animations/jump_fall/model_jump_fall.glb',
+        jumpEnd: 'models/cat_jump_end/animations/jump_end/model_jump_end.glb',
+        attack: 'models/cat_attack/animations/paw_attack/model_paw_attack.glb'
+      };
+      const baseModelUrl = animationSources.idle + '?v=' + Date.now();
+      showModelLoading();
+
+      const loadModel = (url) => new Promise((resolve, reject) => {
+        loader.load(url, resolve, undefined, reject);
+      });
+
+      loadModel(baseModelUrl)
+        .then((gltf) => {
+          const model = gltf.scene;
+          catModel = model;
+          model.traverse((child) => {
+            if (child.isMesh) {
+              child.castShadow = true;
+              child.receiveShadow = true;
+            }
+            if (!attackPaw && /paw|hand|front|leg/i.test(child.name)) {
+              attackPaw = child;
+              attackPawOriginalRotation = child.rotation.clone();
+            }
+            if (!tailBone && /tail|armature.*tail/i.test(child.name)) {
+              tailBone = child;
+              tailOriginalRotation = { x: child.rotation.x, y: child.rotation.y, z: child.rotation.z };
+            }
+          });
+          model.scale.set(0.09, 0.09, 0.09);
+          model.rotation.y = 0;
+          const modelBounds = new THREE.Box3().setFromObject(model);
+          const modelBottom = modelBounds.min.y;
+          model.position.y = -modelBottom;
+          while (cat.children.length) {
+            cat.remove(cat.children[0]);
+          }
+          cat.add(model);
+
+          const animations = gltf.animations || [];
+          const extraLoads = Object.entries(animationSources)
+            .filter(([name]) => name !== 'idle')
+            .map(([name, url]) => loadModel(url + '?v=' + Date.now()).then((subGltf) => {
+              subGltf.animations.forEach((clip) => {
+                clip.name = name;
+                animations.push(clip);
+              });
+            }));
+
+          return Promise.all(extraLoads).then(() => animations);
+        })
+        .then((animations) => {
+          hasCatAnimations = animations.length > 0;
+          if (!hasCatAnimations) {
+            console.warn('Cat model loaded with no animation clips; using manual fallback motion.');
+          }
+          if (hasCatAnimations) {
+            mixer = new THREE.AnimationMixer(catModel);
+            const findClip = (keyword) => animations.find((clip) => clip.name.toLowerCase().includes(keyword));
+            const idleClip = findClip('idle') || findClip('stand') || animations[0];
+            const walkClip = findClip('walk') || findClip('move') || findClip('run') || idleClip;
+            const runClip = findClip('run') || findClip('sprint') || walkClip;
+            const attackClip = findClip('attack') || findClip('paw') || findClip('strike') || idleClip;
+            const jumpStartClip = findClip('jump start') || findClip('jump_start') || findClip('jumpstart') || findClip('takeoff') || findClip('launch') || findClip('jump') || idleClip;
+            const jumpAirClip = findClip('jump air') || findClip('jump_air') || findClip('jumpair') || findClip('air') || jumpStartClip;
+            const jumpEndClip = findClip('jump end') || findClip('jump_end') || findClip('jumpend') || findClip('land') || idleClip;
+            const jumpClip = findClip('jump') || findClip('leap') || findClip('hop') || idleClip;
+
+            const createAction = (clip, loop = THREE.LoopRepeat) => {
+              if (!clip) return null;
+              const action = mixer.clipAction(clip);
+              action.loop = loop;
+              action.clampWhenFinished = true;
+              action.enabled = true;
+              action.setEffectiveWeight(1);
+              return action;
+            };
+
+            catActions.idle = createAction(idleClip);
+            catActions.walk = createAction(walkClip);
+            catActions.run = createAction(runClip);
+            catActions.attack = createAction(attackClip, THREE.LoopOnce);
+            catActions.jumpStart = createAction(jumpStartClip, THREE.LoopOnce);
+            if (catActions.jumpStart) catActions.jumpStart.setEffectiveTimeScale(0.5);
+            catActions.jumpAir = createAction(jumpAirClip, THREE.LoopRepeat);
+            catActions.jumpEnd = createAction(jumpEndClip, THREE.LoopOnce);
+            catActions.jump = createAction(jumpClip, THREE.LoopOnce);
+
+            if (catActions.jumpEnd && catActions.jumpEnd.getClip()) {
+              jumpEndDuration = catActions.jumpEnd.getClip().duration * 1000;
+            }
+
+            if (catActions.idle) {
+              catActions.idle.play();
+              currentCatAction = 'idle';
+            }
+          }
+
+          // Initialize the custom animator
+          catAnimator = new CatAnimator(catModel, mixer, catActions);
+
+          hideModelLoading();
+        })
+        .catch((error) => {
+          console.error('Failed to load cat model:', error);
+          if (modelLoadingOverlay) {
+            modelLoadingOverlay.textContent = 'Failed to load cat model.';
+          }
+          console.warn('Cat model failed to load; no fallback body will be shown.');
+          catModel = cat;
+          setTimeout(hideModelLoading, 2000);
+        });
+
+      // === VISIBLE MOUSE (3D OBJECT) ===
+      const sharedTargetMaterial = new THREE.MeshBasicMaterial({ color: 0x9933FF, transparent: true, opacity: 0.92 });
+
+      const target2 = new THREE.Mesh(
+        new THREE.BoxGeometry(6, 6, 6),
+        sharedTargetMaterial.clone()
+      );
+      target2.material.color.setHex(0xCC4444);
+      target2.position.set(18, 3, -8);
+      scene.add(target2);
+
+      const target3 = new THREE.Mesh(
+        new THREE.SphereGeometry(4, 16, 16),
+        sharedTargetMaterial.clone()
+      );
+      target3.material.color.setHex(0x4499FF);
+      target3.position.set(-12, 4, 16);
+      scene.add(target3);
+
+      // === MOB ZONE FLOOR ===
+      const mobFloorGeo = new THREE.PlaneGeometry(125, 250);
+      const mobFloorMat = new THREE.MeshBasicMaterial({ color: 0x8B4513 });
+      const mobFloor = new THREE.Mesh(mobFloorGeo, mobFloorMat);
+      mobFloor.rotation.x = -Math.PI / 2;
+      mobFloor.position.set(212.5, 0.01, 0);
+      scene.add(mobFloor);
+
+      // Create mobs
+      window.mobStats.mouse.spawnPoints.forEach(spawn => {
+        mobs.push(new Mob('mouse', spawn.x, spawn.z));
+      });
+      window.mobStats.rat.spawnPoints.forEach(spawn => {
+        mobs.push(new Mob('rat', spawn.x, spawn.z));
+      });
+
+      walkableObstacles = [target2, target3];
+      crouchTargets = [target2, target3, ...mobs.map(m => m.mesh)];
+      crouchReticle = createLockReticle();
+      selectedTargetIndicator = createSelectedTargetIndicator();
+
+      // Camera behind cat
+      camera.position.set(0, 12, 25);
+      camera.lookAt(0, 3, 0);
+      cameraPositionTarget.copy(camera.position);
+      cameraLookTarget.copy(new THREE.Vector3(0, 3, 0));
+
+      // Controls
+      window.addEventListener('keydown', e => {
+        keys[e.key.toLowerCase()] = true;
+        if (e.key.toLowerCase() === 'r') {
+          if (isCrouched) {
+            exitCrouch();
+          } else {
+            enterCrouch();
+          }
+        }
+        if (e.code === 'Space' && keys['s'] && keys['shift'] && isGrounded && !backHopActive && !specialJumpActive && Date.now() - lastBackHopTime >= backHopCooldown) {
+          performCrouchBackHop();
+        }
+        if (e.key.toLowerCase() === 'e' && !isAttacking) {
+          if (isCrouched && crouchReady) {
+            performSpecialJump();
+          } else if (Date.now() - lastAttackTime > attackCooldown) {
+            performAttack();
+          }
+        }
+        if (isCrouched) {
+          if (e.key.toLowerCase() === 'z') {
+            switchCrouchTarget(-1);
+          }
+          if (e.key.toLowerCase() === 'x') {
+            switchCrouchTarget(1);
+          }
+        }
+      });
+      window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      socket.on('worldUpdate', (data) => {
+        console.log('SDN Command:', data.cmd);
+      });
+    }
+
+    function getForwardVector() {
+      return new THREE.Vector3(
+        Math.sin(cat.rotation.y),
+        0,
+        Math.cos(cat.rotation.y)
+      ).normalize();
+    }
+
+    function getValidTargetInFront() {
+      let closestTarget = null;
+      let closestDistance = Infinity;
+      crouchTargets.forEach(target => {
+        if (!target || !hasValidTargetInFront(target)) return;
+        const distance = target.position.clone().sub(cat.position).length();
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestTarget = target;
+        }
+      });
+      return closestTarget;
+    }
+
+    function hasValidTargetInFront(target) {
+      const forward = getForwardVector();
+      const direction = target.position.clone().sub(cat.position);
+      const horizontal = direction.clone();
+      horizontal.y = 0;
+      const distance = horizontal.length();
+      if (distance > attackMaxDistance || distance === 0) {
+        return false;
+      }
+      const targetDir = horizontal.normalize();
+      const dot = forward.dot(targetDir);
+      if (dot < 0) {
+        return false;
+      }
+
+      const targetBox = new THREE.Box3().setFromObject(target);
+      const attackMinY = cat.position.y - 0.5;
+      const attackMaxY = cat.position.y + 3.0;
+      if (targetBox.max.y < attackMinY || targetBox.min.y > attackMaxY) {
+        return false;
+      }
+
+      return true;
+    }
+
+    function getClosestCrouchTargetIndex() {
+      let nearestIndex = -1;
+      let nearestDistance = Infinity;
+      crouchTargets.forEach((target, index) => {
+        if (!target) return;
+        const horizontal = target.position.clone().sub(cat.position);
+        horizontal.y = 0;
+        const distance = horizontal.length();
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestIndex = index;
+        }
+      });
+      return nearestIndex;
+    }
+
+    function createLockReticle() {
+      const group = new THREE.Group();
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(1.0, 1.4, 32),
+        new THREE.MeshBasicMaterial({ color: 0xFF3333, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      group.add(ring);
+
+      const inner = new THREE.Mesh(
+        new THREE.CircleGeometry(0.22, 16),
+        new THREE.MeshBasicMaterial({ color: 0xFF3333, transparent: true, opacity: 0.95, side: THREE.DoubleSide })
+      );
+      inner.rotation.x = -Math.PI / 2;
+      group.add(inner);
+
+      const orbit = new THREE.Mesh(
+        new THREE.SphereGeometry(0.12, 10, 10),
+        new THREE.MeshBasicMaterial({ color: 0xFF5555 })
+      );
+      orbit.position.set(0.8, 0, 0);
+      group.add(orbit);
+
+      group.userData = {
+        ring,
+        inner,
+        orbit,
+        orbitAngle: 0,
+      };
+      group.visible = false;
+      scene.add(group);
+      return group;
+    }
+
+    function createSelectedTargetIndicator() {
+      const group = new THREE.Group();
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(1.0, 1.6, 24),
+        new THREE.MeshBasicMaterial({ color: 0xFFFF55, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      group.add(ring);
+
+      const marker = new THREE.Mesh(
+        new THREE.CircleGeometry(0.35, 20),
+        new THREE.MeshBasicMaterial({ color: 0xFFFF88, transparent: true, opacity: 0.95, side: THREE.DoubleSide })
+      );
+      marker.rotation.x = -Math.PI / 2;
+      group.add(marker);
+
+      const arrow = new THREE.Mesh(
+        new THREE.ConeGeometry(0.25, 0.6, 12),
+        new THREE.MeshBasicMaterial({ color: 0xFFFF88 })
+      );
+      arrow.rotation.x = Math.PI;
+      arrow.position.set(0, 0.75, 0);
+      group.add(arrow);
+
+      group.userData = { ring, marker, arrow };
+      group.visible = false;
+      scene.add(group);
+      return group;
+    }
+
+    function resetCrouchLock() {
+      crouchChargeStart = Date.now();
+      crouchReady = false;
+      if (crouchReticle) {
+        crouchReticle.scale.set(1, 1, 1);
+        crouchReticle.userData.orbitAngle = 0;
+        crouchReticle.userData.ring.material.color.setHex(0xFF3333);
+        crouchReticle.userData.inner.material.color.setHex(0xFF3333);
+      }
+    }
+
+    function switchCrouchTarget(direction) {
+      if (!isCrouched || crouchTargets.length < 2 || specialJumpActive) return;
+      crouchTargetIndex = (crouchTargetIndex + direction + crouchTargets.length) % crouchTargets.length;
+      resetCrouchLock();
+      const target = crouchTargets[crouchTargetIndex];
+      if (target) {
+        const focus = target.position.clone();
+        focus.y += 2.2;
+        crouchCameraFocus.copy(focus);
+      }
+    }
+
+    function enterCrouch() {
+      isCrouched = true;
+      const closestIndex = getClosestCrouchTargetIndex();
+      if (closestIndex >= 0) crouchTargetIndex = closestIndex;
+      resetCrouchLock();
+      const target = crouchTargets[crouchTargetIndex];
+      if (target) {
+        const focus = target.position.clone();
+        focus.y += 2.2;
+        crouchCameraFocus.copy(focus);
+      }
+      if (crouchReticle) crouchReticle.visible = true;
+    }
+
+    function exitCrouch() {
+      isCrouched = false;
+      crouchReady = false;
+      if (crouchReticle) crouchReticle.visible = false;
+      if (selectedTargetIndicator) selectedTargetIndicator.visible = false;
+    }
+
+    function updateCrouchLock() {
+      if (!crouchReticle || !isCrouched || specialJumpActive) return;
+      const target = crouchTargets[crouchTargetIndex];
+      if (!target) {
+        crouchReticle.visible = false;
+        if (selectedTargetIndicator) selectedTargetIndicator.visible = false;
+        return;
+      }
+      crouchReticle.visible = true;
+      const focusedPosition = target.position.clone();
+      focusedPosition.y += 2.2;
+      crouchReticle.position.copy(focusedPosition);
+
+      if (selectedTargetIndicator) {
+        selectedTargetIndicator.visible = true;
+        selectedTargetIndicator.position.copy(target.position);
+        selectedTargetIndicator.position.y += Math.max(4.5, target.position.y + 1.5);
+        selectedTargetIndicator.scale.setScalar(1 + Math.min(0.5, target.position.distanceTo(cat.position) / 20));
+        selectedTargetIndicator.userData.ring.material.opacity = crouchReady ? 0.95 : 0.55;
+      }
+
+      const data = crouchReticle.userData;
+      data.orbitAngle += 0.12;
+      data.orbit.position.set(Math.cos(data.orbitAngle) * 0.6, 0, Math.sin(data.orbitAngle) * 0.6);
+      data.orbit.rotation.y += 0.1;
+
+      const distance = target.position.clone().sub(cat.position).setY(0).length();
+      if (distance > maxCrouchLockDistance) {
+        crouchReady = false;
+        crouchReticle.userData.ring.material.color.setHex(0xAA3333);
+        crouchReticle.userData.inner.material.color.setHex(0xAA3333);
+        return;
+      }
+
+      const elapsed = Date.now() - crouchChargeStart;
+      if (elapsed >= crouchChargeDuration && energy >= 20) {
+        crouchReady = true;
+        const blink = (Math.sin(Date.now() / 120) + 1) * 0.5;
+        const pulse = 0.6 + blink * 0.4;
+        data.ring.material.color.setHex(0xFFD700);
+        data.inner.material.color.setHex(0xFFDD33);
+        data.ring.material.opacity = pulse;
+        data.inner.material.opacity = pulse;
+        crouchReticle.scale.set(2, 2, 2);
+      } else {
+        crouchReady = false;
+        data.ring.material.color.setHex(0xFF3333);
+        data.inner.material.color.setHex(0xFF3333);
+        data.ring.material.opacity = 0.9;
+        data.inner.material.opacity = 0.95;
+        const scale = 1 + (elapsed / crouchChargeDuration) * 0.35;
+        crouchReticle.scale.set(scale, scale, scale);
+      }
+    }
+
+    function createImpactEffect(position) {
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.7, 12, 12),
+        new THREE.MeshBasicMaterial({ color: 0xFFBB22, transparent: true, opacity: 0.95 })
+      );
+      mesh.position.copy(position);
+      mesh.userData = {
+        age: 0,
+        lifetime: 180,
+      };
+      mesh.scale.set(0.3, 0.3, 0.3);
+      scene.add(mesh);
+      impactEffects.push(mesh);
+      return mesh;
+    }
+
+    function updateImpactEffects(delta) {
+      const alive = [];
+      impactEffects.forEach(effect => {
+        effect.userData.age += delta;
+        const progress = effect.userData.age / effect.userData.lifetime;
+        effect.scale.setScalar(0.3 + progress * 1.4);
+        effect.material.opacity = Math.max(0, 0.95 - progress);
+        if (effect.userData.age < effect.userData.lifetime) {
+          alive.push(effect);
+        } else {
+          scene.remove(effect);
+          effect.geometry.dispose();
+          effect.material.dispose();
+        }
+      });
+      impactEffects = alive;
+    }
+
+    function performSpecialJump() {
+      if (!isCrouched || !crouchReady || specialJumpActive) return;
+      if (!useEnergy(20)) return;
+      const target = crouchTargets[crouchTargetIndex];
+      if (!target) return;
+
+      const start = cat.position.clone();
+      const targetPos = target.position.clone();
+      targetPos.y = start.y;
+      const direction = targetPos.clone().sub(start);
+      direction.y = 0;
+      const distance = direction.length();
+      if (distance < 0.5) return;
+      direction.normalize();
+
+      const forwardDistance = Math.min(distance, 30);
+      const contactPoint = start.clone().add(direction.clone().multiplyScalar(forwardDistance));
+      const reboundPoint = contactPoint.clone().add(direction.clone().multiplyScalar(-forwardDistance * 0.5));
+
+      specialJumpActive = true;
+      specialJumpData = {
+        start,
+        contactPoint,
+        reboundPoint,
+        phase: 'forward',
+        elapsed: 0,
+        forwardDuration: 320,
+        reboundDuration: 180,
+      };
+      if (crouchReticle) crouchReticle.visible = false;
+      crouchReady = false;
+    }
+
+    function updateSpecialJump(delta) {
+      if (!specialJumpActive || !specialJumpData) return;
+      specialJumpData.elapsed += delta;
+      if (specialJumpData.phase === 'forward') {
+        const t = Math.min(1, specialJumpData.elapsed / specialJumpData.forwardDuration);
+        cat.position.lerpVectors(specialJumpData.start, specialJumpData.contactPoint, t);
+        if (t >= 1) {
+          // Damage target
+          const target = crouchTargets[crouchTargetIndex];
+          if (target && target.mouse) {
+            target.mouse.takeDamage(40);
+          }
+          specialJumpData.phase = 'rebound';
+          specialJumpData.elapsed = 0;
+          createImpactEffect(specialJumpData.contactPoint);
+        }
+      } else if (specialJumpData.phase === 'rebound') {
+        const t = Math.min(1, specialJumpData.elapsed / specialJumpData.reboundDuration);
+        cat.position.lerpVectors(specialJumpData.contactPoint, specialJumpData.reboundPoint, t);
+        if (t >= 1) {
+          specialJumpActive = false;
+          specialJumpData = null;
+          exitCrouch();
+        }
+      }
+    }
+
+    function performCrouchBackHop() {
+      if (specialJumpActive || backHopActive) return;
+      backHopActive = true;
+      lastBackHopTime = Date.now();
+      const start = cat.position.clone();
+      const backward = getForwardVector().clone().multiplyScalar(-1);
+      const end = start.clone().add(backward.multiplyScalar(12));
+      end.y = start.y;
+      backHopData = {
+        start,
+        end,
+        elapsed: 0,
+        duration: 120,
+      };
+      catVelocity.y = 0;
+      if (crouchReticle) crouchReticle.visible = false;
+      if (selectedTargetIndicator) selectedTargetIndicator.visible = false;
+    }
+
+    function updateBackHop(delta) {
+      if (!backHopActive || !backHopData) return;
+      backHopData.elapsed += delta;
+      const t = Math.min(1, backHopData.elapsed / backHopData.duration);
+      cat.position.lerpVectors(backHopData.start, backHopData.end, t);
+      const height = Math.sin(Math.PI * t) * 0.9;
+      cat.position.y = backHopData.start.y + height;
+
+      // Check for collisions with obstacles during back-hop
+      const catHalfWidth = 0.9;
+      const catHalfDepth = 1.0;
+      const catBottomOffset = 0.72;
+      const catTopOffset = 1.2;
+      const catBottomY = cat.position.y - catBottomOffset;
+      const catTopY = cat.position.y + catTopOffset;
+
+      let hitObstacle = false;
+      walkableObstacles.forEach(obstacle => {
+        if (!obstacle) return;
+        const box = new THREE.Box3().setFromObject(obstacle);
+        const catLeft = cat.position.x - catHalfWidth;
+        const catRight = cat.position.x + catHalfWidth;
+        const catFront = cat.position.z + catHalfDepth;
+        const catBack = cat.position.z - catHalfDepth;
+        const overlapX = catRight > box.min.x && catLeft < box.max.x;
+        const overlapZ = catFront > box.min.z && catBack < box.max.z;
+        const overlapY = catTopY > box.min.y && catBottomY < box.max.y;
+        if (overlapX && overlapZ && overlapY) {
+          hitObstacle = true;
+        }
+      });
+
+      if (hitObstacle) {
+        backHopActive = false;
+        backHopData = null;
+      } else if (t >= 1) {
+        backHopActive = false;
+        backHopData = null;
+      }
+    }
+
+    function createAttackSlash(target) {
+      const group = new THREE.Group();
+      const padMaterial = new THREE.MeshBasicMaterial({
+        color: 0xFFFFFF,
+        transparent: true,
+        opacity: 0.55,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+
+      const mainPad = new THREE.Mesh(new THREE.CircleGeometry(3.5, 32), padMaterial);
+      mainPad.rotation.x = -Math.PI / 2;
+      group.add(mainPad);
+
+      const smallPadGeometry = new THREE.CircleGeometry(1.1, 24);
+      const smallPads = [
+        new THREE.Mesh(smallPadGeometry, padMaterial),
+        new THREE.Mesh(smallPadGeometry, padMaterial),
+        new THREE.Mesh(smallPadGeometry, padMaterial),
+      ];
+      smallPads[0].position.set(-1.6, 0, 1.8);
+      smallPads[1].position.set(0, 0, 2.4);
+      smallPads[2].position.set(1.6, 0, 1.8);
+      smallPads.forEach(pad => {
+        pad.rotation.x = -Math.PI / 2;
+        group.add(pad);
+      });
+
+      const targetBox = new THREE.Box3().setFromObject(target);
+      const targetCenterY = (targetBox.min.y + targetBox.max.y) / 2;
+      const height = Math.min(targetCenterY, cat.position.y + 4);
+
+      const forward = getForwardVector();
+      const left = new THREE.Vector3(-forward.z, 0, forward.x);
+      const start = cat.position.clone()
+        .add(forward.clone().multiplyScalar(6))
+        .add(left.clone().multiplyScalar(-4))
+        .add(new THREE.Vector3(0, height, 0));
+      group.position.copy(start);
+      group.rotation.y = cat.rotation.y;
+      group.userData = {
+        startPosition: start.clone(),
+        endOffset: forward.clone().multiplyScalar(10).add(left.clone().multiplyScalar(8)),
+        startTime: Date.now(),
+      };
+      scene.add(group);
+      return group;
+    }
+
+    function performAttack() {
+      if (isAttacking || Date.now() - lastAttackTime < attackCooldown) {
+        return;
+      }
+      const target = getValidTargetInFront();
+      if (!target) {
+        return;
+      }
+
+      if (!useEnergy(5)) {
+        return;
+      }
+      isAttacking = true;
+
+      lastAttackTime = Date.now();
+      attackVisual = createAttackSlash(target);
+
+      // Use animator for attack
+      if (catAnimator) {
+        catAnimator.startAttack();
+      }
+
+      const lockMode = isCrouched && selectedTargetIndicator && selectedTargetIndicator.visible && target;
+      if (lockMode) {
+        rotateCatTowards(target.position, 0.8);
+      }
+
+      if (hasCatAnimations && catActions.attack) {
+        playCatAction('attack', 0.1);
+      } else {
+        const frontRightPaw = cat.children.find(child => child.position.equals(new THREE.Vector3(0.4, -0.6, 0.4)));
+        if (frontRightPaw) {
+          const originalRotZ = frontRightPaw.rotation.z;
+          frontRightPaw.rotation.z = 0.5;
+          setTimeout(() => {
+            frontRightPaw.rotation.z = originalRotZ;
+          }, attackAnimationDuration);
+        }
+      }
+
+      const damageAmount = lockMode ? 40 : 10;
+      damageObject(target, damageAmount);
+
+      setTimeout(() => {
+        isAttacking = false;
+      }, attackAnimationDuration);
+    }
+
+    function damageObject(obj, amount = 10) {
+      if (obj.mob) {
+        obj.mob.takeDamage(amount); // Attack damage
+        return;
+      }
+      const originalColor = obj.material.color.getHex();
+      obj.material.color.setHex(0xFF0000);
+
+      setTimeout(() => {
+        obj.material.color.setHex(originalColor);
+      }, 200);
+    }
+
+    function playCatAction(name, fadeDuration = 0.2, forcePlay = false) {
+      if (!hasCatAnimations || !mixer || !catActions[name]) return;
+      if (currentCatAction === name && !forcePlay) return;
+      const nextAction = catActions[name];
+      const previousAction = catActions[currentCatAction];
+      if (name === 'idle') {
+        // Stop previous action immediately and reset to standing
+        if (previousAction) {
+          previousAction.stop();
+          previousAction.reset();
+        }
+        nextAction.reset();
+        nextAction.play();
+      } else {
+        nextAction.reset();
+        nextAction.play();
+        nextAction.fadeIn(fadeDuration);
+        if (previousAction && previousAction !== nextAction) {
+          previousAction.fadeOut(fadeDuration);
+        }
+      }
+      currentCatAction = name;
+    }
+
+    function startTailWiggle() {
+      if (!tailBone) return;
+      
+      // Store current tail rotation as starting point
+      tailWiggleStartRotation = {
+        x: tailBone.rotation.x,
+        y: tailBone.rotation.y,
+        z: tailBone.rotation.z
+      };
+      
+      // Alternate between circle anchors and random positions
+      const isTowardCircle = Math.random() > 0.5;
+      
+      if (isTowardCircle) {
+        // Pick random circle position
+        lastCircleIndex = Math.floor(Math.random() * tailCirclePositions.length);
+        const circlePos = tailCirclePositions[lastCircleIndex];
+        tailWiggleTarget = { ...circlePos };
+      } else {
+        // Pick random position in space with larger range
+        tailWiggleTarget = {
+          x: (Math.random() - 0.5) * 2.0,
+          y: (Math.random() - 0.5) * 2.2 - 0.6,
+          z: (Math.random() - 0.5) * 1.8
+        };
+      }
+      
+      // Variable speed: sometimes faster (0.4s), sometimes slower (3.5s), mostly medium
+      const speedRoll = Math.random();
+      let durationSeconds;
+      if (speedRoll < 0.2) {
+        durationSeconds = Math.random() * 0.3 + 0.4; // Fast: 0.4-0.7s
+      } else if (speedRoll < 0.4) {
+        durationSeconds = Math.random() * 1.5 + 2.0; // Slow: 2.0-3.5s
+      } else {
+        durationSeconds = Math.random() * 1.2 + 0.8; // Medium: 0.8-2.0s
+      }
+      
+      tailWiggleDuration = durationSeconds * 1000;
+      tailWiggleStartTime = Date.now();
+      
+      // Variable easing
+      const easingRoll = Math.random();
+      if (easingRoll < 0.33) {
+        tailEasingType = 'ease-in-out';
+      } else if (easingRoll < 0.66) {
+        tailEasingType = 'ease-in';
+      } else {
+        tailEasingType = 'ease-out';
+      }
+      
+      tailWiggleActive = true;
+    }
+
+    function updateTailWiggle() {
+      // Only wiggle during idle animation
+      if (currentCatAction !== 'idle' || !tailBone) {
+        tailWiggleActive = false;
+        return;
+      }
+
+      const now = Date.now();
+      
+      // Start a new wiggle if none is active
+      if (!tailWiggleActive) {
+        startTailWiggle();
+        return;
+      }
+
+      // Calculate elapsed time and progress for current wiggle
+      const elapsed = now - tailWiggleStartTime;
+      const progress = Math.min(elapsed / tailWiggleDuration, 1.0);
+
+      // Variable easing based on easing type
+      let easeProgress;
+      if (tailEasingType === 'ease-in') {
+        easeProgress = progress * progress;
+      } else if (tailEasingType === 'ease-out') {
+        easeProgress = 1 - (1 - progress) * (1 - progress);
+      } else {
+        // ease-in-out (default)
+        easeProgress = progress < 0.5 
+          ? 2 * progress * progress 
+          : -1 + (4 - 2 * progress) * progress;
+      }
+
+      // Interpolate from starting position to target rotation
+      tailBone.rotation.x = tailWiggleStartRotation.x + (tailWiggleTarget.x - tailWiggleStartRotation.x) * easeProgress;
+      tailBone.rotation.y = tailWiggleStartRotation.y + (tailWiggleTarget.y - tailWiggleStartRotation.y) * easeProgress;
+      tailBone.rotation.z = tailWiggleStartRotation.z + (tailWiggleTarget.z - tailWiggleStartRotation.z) * easeProgress;
+
+      // When current wiggle finishes, ensure we snap to target and start next
+      if (progress >= 1.0) {
+        tailBone.rotation.x = tailWiggleTarget.x;
+        tailBone.rotation.y = tailWiggleTarget.y;
+        tailBone.rotation.z = tailWiggleTarget.z;
+        tailWiggleActive = false;
+      }
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+
+    function updateHud() {
+      if (vitalityFill) vitalityFill.style.transform = `scaleX(${clamp(vitality, 0, 100) / 100})`;
+      if (energyFill) energyFill.style.transform = `scaleX(${clamp(energy, 0, 100) / 100})`;
+      if (xpFill) xpFill.style.transform = `scaleX(${clamp(xp, 0, 100) / 100})`;
+      if (vitalityValueText) vitalityValueText.textContent = `${Math.round(clamp(vitality, 0, 100))} / 100`;
+      if (energyValueText) energyValueText.textContent = `${Math.round(clamp(energy, 0, 100))} / 100`;
+      if (xpText) xpText.textContent = `${Math.round(clamp(xp, 0, 100))}%`;
+    }
+
+    function decreaseVitality(amount) {
+      vitality = clamp(vitality - amount, 0, 100);
+      updateHud();
+    }
+
+    function useEnergy(amount) {
+      if (energy < amount) {
+        return false;
+      }
+      energy = clamp(energy - amount, 0, 100);
+      updateHud();
+      return true;
+    }
+
+    function regenEnergy() {
+      const now = Date.now();
+      if (now - lastEnergyRegen >= 2000) {
+        lastEnergyRegen = now;
+        energy = clamp(energy + 1, 0, 100);
+        updateHud();
+      }
+    }
+
+    function addXP(amount) {
+      xp = clamp(xp + amount, 0, 100);
+      updateHud();
+    }
+
+    let catVelocity = { y: 0 };
+    let isGrounded = false;
+    let lastJumpTime = 0;
+    let jumpPhase = 'none';
+    let jumpEndTimer = 0;
+    let jumpEndDuration = 250;
+    let lastJumpAnimTime = 0; // Cooldown for jumpStart/jumpEnd (0.3s)
+    const jumpCooldown = 300; // 0.3 second cooldown for jump sequence
+    const jumpAnimCooldown = 300; // 0.3 seconds for animation gating
+    const gravity = 0.04;
+    const jumpPower = 1.0;
+    let runBobTime = 0;
+    let wasGroundedLastFrame = true;
+
+    // Tail wiggle variables with circle-based positioning
+    let tailBone = null;
+    let tailWiggleActive = false;
+    let tailWiggleStartTime = 0;
+    let tailWiggleDuration = 0;
+    let tailWiggleTarget = { x: 0, y: 0, z: 0 };
+    let tailWiggleStartRotation = { x: 0, y: 0, z: 0 };
+    let tailEasingType = 'ease-in-out'; // Different easing for variety
+    
+    // 5 anchor positions forming a circle
+    const tailCirclePositions = [
+      { x: 0.8, y: -0.5, z: 0.0 },    // Right
+      { x: 0.4, y: -0.8, z: 0.4 },    // Bottom-right
+      { x: 0.0, y: -0.9, z: 0.6 },    // Bottom
+      { x: -0.4, y: -0.8, z: 0.4 },   // Bottom-left
+      { x: -0.8, y: -0.5, z: 0.0 }    // Left
+    ];
+    let lastCircleIndex = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const now = Date.now();
+      const delta = now - lastFrameTime;
+      lastFrameTime = now;
+
+      // Local movement with rotation
+      const baseSpeed = 0.2;
+      const runSpeed = 0.6; // 3x faster than walking
+      const movingBackwardInput = keys['s'] && !keys['w'];
+      const speed = ((keys['shift'] && !movingBackwardInput) ? runSpeed : baseSpeed) * (isCrouched ? crouchSpeedMultiplier : 1);
+      const rotSpeed = 0.05;
+      const isMoving = keys['w'] || keys['s'] || keys['a'] || keys['d'];
+
+      if (!specialJumpActive && !backHopActive) {
+        // Rotate the cat left/right
+        if (keys['a']) cat.rotation.y += rotSpeed;
+        if (keys['d']) cat.rotation.y -= rotSpeed;
+
+        // Try to move forward/backward, but check for collision
+        let nextX = cat.position.x;
+        let nextZ = cat.position.z;
+
+        if (keys['w']) {
+          nextX += Math.sin(cat.rotation.y) * speed;
+          nextZ += Math.cos(cat.rotation.y) * speed;
+        }
+        if (keys['s']) {
+          nextX -= Math.sin(cat.rotation.y) * speed;
+          nextZ -= Math.cos(cat.rotation.y) * speed;
+        }
+
+        // === COLLISION & GROUND CHECK ===
+        const catHalfWidth = 0.9;
+        const catHalfDepth = 1.0;
+        const catBottomOffset = 0.72; // distance from group origin to the cat's feet
+        const catTopOffset = 1.2; // distance from group origin to the cat's head top
+        const catBottomY = cat.position.y - catBottomOffset;
+        const catTopY = cat.position.y + catTopOffset;
+
+        isGrounded = false;
+        
+        // On ground
+        if (catBottomY <= 0) {
+          cat.position.y = catBottomOffset;
+          catVelocity.y = 0;
+          isGrounded = true;
+        }
+
+        let movementBlocked = false;
+        let standingSurfaceY = -Infinity;
+        let isOnObstacleTop = false;
+
+        walkableObstacles.forEach(obstacle => {
+          if (!obstacle) return;
+          const box = new THREE.Box3().setFromObject(obstacle);
+          const nextLeft = nextX - catHalfWidth;
+          const nextRight = nextX + catHalfWidth;
+          const nextFront = nextZ + catHalfDepth;
+          const nextBack = nextZ - catHalfDepth;
+          const currentLeft = cat.position.x - catHalfWidth;
+          const currentRight = cat.position.x + catHalfWidth;
+          const currentFront = cat.position.z + catHalfDepth;
+          const currentBack = cat.position.z - catHalfDepth;
+          const overlapNext = nextRight > box.min.x && nextLeft < box.max.x && nextFront > box.min.z && nextBack < box.max.z;
+          const overlapCurrent = currentRight > box.min.x && currentLeft < box.max.x && currentFront > box.min.z && currentBack < box.max.z;
+
+          const isAboveTopSurface = catBottomY >= box.max.y - 0.05 && catBottomY <= box.max.y + 0.2;
+          if (overlapCurrent && isAboveTopSurface) {
+            standingSurfaceY = Math.max(standingSurfaceY, box.max.y);
+            isOnObstacleTop = true;
+          }
+
+          const willHitSides = overlapNext && catTopY > box.min.y && catBottomY < box.max.y;
+          if (willHitSides && !(isOnObstacleTop && overlapNext)) {
+            movementBlocked = true;
+          }
+        });
+
+        if (isOnObstacleTop && standingSurfaceY > -Infinity) {
+          cat.position.y = standingSurfaceY + catBottomOffset;
+          catVelocity.y = 0;
+          isGrounded = true;
+        }
+
+        if (!movementBlocked) {
+          cat.position.x = nextX;
+          cat.position.z = nextZ;
+        }
+
+        // === GRAVITY & JUMPING ===
+        if (keys[' '] && isGrounded && Date.now() - lastJumpTime >= jumpCooldown) {
+          if (!isCrouched) {
+            // Reset jumpPhase and cancel any landing animation timer so a fresh jumpStart can begin
+            jumpPhase = 'none';
+            jumpEndTimer = 0;
+            
+            if (catActions.jumpStart) {
+              catActions.jumpStart.stop();
+              catActions.jumpStart.reset();
+            }
+            if (catActions.jumpAir) {
+              catActions.jumpAir.stop();
+              catActions.jumpAir.reset();
+            }
+            if (catActions.jumpEnd) {
+              catActions.jumpEnd.stop();
+              catActions.jumpEnd.reset();
+            }
+            
+            const jumpHeight = keys['shift'] ? jumpPower * runJumpMultiplier : jumpPower;
+            catVelocity.y = jumpHeight;
+            isGrounded = false;
+            jumpPhase = 'start';
+            lastJumpTime = Date.now();
+            lastJumpAnimTime = Date.now();
+            playCatAction('jumpStart', 0.2, true);
+          }
+        }
+        
+        const prevCatBottomY = catBottomY;
+        catVelocity.y -= gravity;
+        cat.position.y += catVelocity.y;
+
+        // Landing on top of registered obstacles from a fall
+        const newCatBottomY = cat.position.y - catBottomOffset;
+        let landedOnSurface = false;
+        let highestLandingY = -Infinity;
+
+        walkableObstacles.forEach(obstacle => {
+          if (!obstacle) return;
+          const box = new THREE.Box3().setFromObject(obstacle);
+          const withinX = cat.position.x + catHalfWidth > box.min.x && cat.position.x - catHalfWidth < box.max.x;
+          const withinZ = cat.position.z + catHalfDepth > box.min.z && cat.position.z - catHalfDepth < box.max.z;
+          if (!withinX || !withinZ) return;
+          if (catVelocity.y < 0 && prevCatBottomY > box.max.y && newCatBottomY <= box.max.y) {
+            highestLandingY = Math.max(highestLandingY, box.max.y);
+            landedOnSurface = true;
+          }
+        });
+
+        if (landedOnSurface) {
+          cat.position.y = highestLandingY + catBottomOffset;
+          catVelocity.y = 0;
+          if (!isGrounded) {
+            isGrounded = true;
+            if (jumpPhase !== 'none' && jumpPhase !== 'end') {
+              jumpPhase = 'end';
+              jumpEndTimer = jumpEndDuration;
+              lastJumpAnimTime = Date.now();
+              playCatAction('jumpEnd', 0.2, true);
+            }
+          }
+        }
+
+        // Land on ground
+        if (cat.position.y - catBottomOffset < 0) {
+          cat.position.y = catBottomOffset;
+          catVelocity.y = 0;
+          if (!isGrounded) {
+            isGrounded = true;
+            if (jumpPhase !== 'none' && jumpPhase !== 'end') {
+              jumpPhase = 'end';
+              jumpEndTimer = jumpEndDuration;
+              lastJumpAnimTime = Date.now();
+              playCatAction('jumpEnd', 0.2, true);
+            }
+          }
+        }
+      }
+
+      if (backHopActive) {
+        updateBackHop(delta);
+      }
+      if (specialJumpActive) {
+        updateSpecialJump(delta);
+      }
+      updateImpactEffects(delta);
+
+      const movingBackward = keys['s'] && !keys['w'];
+      const isRunning = keys['shift'] && isMoving && !movingBackward;
+      let desiredCatAction = 'idle';
+
+      if (jumpEndTimer > 0) {
+        desiredCatAction = 'jumpEnd';
+      } else if (jumpPhase === 'start') {
+        desiredCatAction = 'jumpStart';
+        if (catActions.jumpStart) {
+          const jumpStartAction = catActions.jumpStart;
+          if (jumpStartAction.time >= jumpStartAction.getClip().duration * 0.98) {
+            jumpPhase = 'air';
+          }
+        }
+      } else if (jumpPhase === 'air' && !isGrounded) {
+        desiredCatAction = 'jumpAir';
+      } else if (jumpPhase === 'end') {
+        desiredCatAction = 'jumpEnd';
+      } else if (isAttacking) {
+        desiredCatAction = 'attack';
+      } else if (isMoving) {
+        desiredCatAction = isRunning ? 'run' : 'walk';
+      }
+
+      if (movingBackward && desiredCatAction === 'run') {
+        desiredCatAction = 'walk';
+      }
+
+      // Use the custom animator for all animation updates
+      if (catAnimator) {
+        catAnimator.update(delta, isMoving, isRunning, isGrounded, attackPaw, attackPawOriginalRotation);
+      }
+
+      if (jumpEndTimer > 0) {
+        jumpEndTimer = Math.max(0, jumpEndTimer - delta);
+        if (jumpEndTimer === 0) {
+          jumpPhase = 'none';
+          lastJumpAnimTime = Date.now(); // Set cooldown when animation completes
+        }
+      }
+
+      if (hasCatAnimations && mixer) {
+        if (currentCatAction !== desiredCatAction && catActions[desiredCatAction]) {
+          playCatAction(desiredCatAction);
+        }
+        mixer.update(clock.getDelta());
+        // Update tail wiggle if active
+        updateTailWiggle();
+      }
+
+      // Keep the camera behind the cat with smooth follow while retaining target focus.
+      const desiredCamPos = new THREE.Vector3(
+        cat.position.x - Math.sin(cat.rotation.y) * 15,
+        cat.position.y + 12,
+        cat.position.z - Math.cos(cat.rotation.y) * 15
+      );
+      let cameraBaseY = 12;
+      if (keys['shift'] && isMoving) {
+        runBobTime += 0.15;
+        cameraBaseY += Math.sin(runBobTime) * 0.3;
+      } else {
+        runBobTime = 0;
+      }
+      desiredCamPos.y = cat.position.y + cameraBaseY;
+      cameraPositionTarget.lerp(desiredCamPos, 0.14);
+      camera.position.lerp(cameraPositionTarget, 0.12);
+
+      let desiredLookAt = cat.position.clone().add(new THREE.Vector3(0, 2.2, 0));
+      if (isCrouched && crouchTargets[crouchTargetIndex]) {
+        updateCrouchLock();
+        const target = crouchTargets[crouchTargetIndex];
+        const targetBox = new THREE.Box3().setFromObject(target);
+        const targetCenter = targetBox.getCenter(new THREE.Vector3());
+        const lookHeight = Math.max(2.2, (targetBox.max.y - targetBox.min.y) * 0.6);
+        const forward = new THREE.Vector3(Math.sin(cat.rotation.y), 0, Math.cos(cat.rotation.y));
+        const behindPosition = cat.position.clone().sub(forward.clone().multiplyScalar(13)).add(new THREE.Vector3(0, cameraBaseY, 0));
+        const targetOffset = targetCenter.clone().sub(cat.position).setY(0).normalize().multiplyScalar(4);
+        const lockedCamPos = behindPosition.add(targetOffset);
+        desiredCamPos.lerp(lockedCamPos, 0.24);
+        desiredLookAt = cat.position.clone().lerp(targetCenter.clone().setY(cat.position.y + lookHeight), 0.4);
+      }
+      cameraLookTarget.lerp(desiredLookAt, 0.16);
+      camera.lookAt(cameraLookTarget);
+      
+      // Update attack visuals and cooldown UI
+      const cooldownElapsed = Date.now() - lastAttackTime;
+      const cooldownProgress = Math.min(1, Math.max(0, cooldownElapsed / attackCooldown));
+      if (attackCooldownFill) {
+        attackCooldownFill.style.transform = `scaleX(${cooldownProgress})`;
+      }
+      const coolingDown = cooldownElapsed < attackCooldown;
+      if (attackButton) {
+        attackButton.disabled = coolingDown || energy < 5;
+        const activeState = !coolingDown && (isCrouched ? crouchReady : getValidTargetInFront() !== null) && energy >= 5;
+        attackButton.classList.toggle('active', activeState);
+      }
+
+      regenEnergy();
+      updateHud();
+
+      if (attackVisual) {
+        const visualElapsed = Date.now() - attackVisual.userData.startTime;
+        const t = visualElapsed / attackAnimationDuration;
+        if (t >= 1) {
+          scene.remove(attackVisual);
+          attackVisual.traverse(child => {
+            if (child.isMesh) {
+              child.geometry?.dispose();
+              if (Array.isArray(child.material)) {
+                child.material.forEach(mat => mat.dispose());
+              } else {
+                child.material?.dispose();
+              }
+            }
+          });
+          attackVisual = null;
+        } else {
+          attackVisual.position.copy(attackVisual.userData.startPosition).add(attackVisual.userData.endOffset.clone().multiplyScalar(t));
+          attackVisual.traverse(child => {
+            if (child.isMesh && child.material) {
+              if (Array.isArray(child.material)) {
+                child.material.forEach(mat => mat.opacity = 0.55 * (1 - t));
+              } else {
+                child.material.opacity = 0.55 * (1 - t);
+              }
+            }
+          });
+        }
+      }
+
+      // Update frame state for next iteration
+      wasGroundedLastFrame = isGrounded;
+
+      // Send commands to server for SDN world updates
+      if (keys['w']) socket.emit('command', { cmd: "00001" });
+      if (keys['a']) socket.emit('command', { cmd: "00002" });
+      if (keys['d']) socket.emit('command', { cmd: "00003" });
+      if (keys[' ']) socket.emit('command', { cmd: "00004" });
+
+      // Update mobs
+      mobs.forEach(mob => mob.update(delta));
+
+      renderer.render(scene, camera);
+    }
+
+    init();
+    animate();
+  </script>
+</body>
+</html>

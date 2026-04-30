@@ -1,0 +1,93 @@
+GAME LOGIC OVERVIEW
+
+Project: Cat Game 2.1
+Folder: GAME_LOGICXX
+Main code references: cat-mmo/public/index.html, cat-mmo/public/cat.js
+Supporting note: info/info.txt
+
+1. Main Idea
+- This game is a cat movement/animation prototype built with Three.js and a custom animation system.
+- The main actor is a cat model that can walk, run, jump, crouch, attack, and perform special movement like back-hop and special jump.
+- The game uses keyboard input for movement and a physics-like system for gravity, landing, and obstacle traversal.
+- Animation is driven by two systems: model animation clips when available, and a manual fallback animator for models without full clip support.
+
+2. Controls and Input Mapping
+- W: Move forward in the direction the cat is facing.
+- S: Move backward, with backward motion constrained to walking speed rather than running.
+- A/D: Rotate the cat left and right.
+- Shift: Run when moving forward, increasing speed and jump height. No running when moving backward.
+- Space: Jump when grounded and not crouched.
+- Special jump / back-hop: triggered by specific key combinations in the current game logic.
+
+3. Movement System
+- Standard movement uses local forward/backward displacement based on cat.rotation.y.
+- Forward speed: baseSpeed = 0.2.
+- Run speed: runSpeed = 0.6 (3x base speed), active only when moving forward and holding Shift.
+- Backward motion is explicitly limited to walking speed using the same base speed.
+- Rotation speed is fixed at rotSpeed = 0.05.
+- Crouch mode reduces speed by a crouch multiplier when active.
+
+4. Collision and Obstacle Handling
+- The cat is treated as a capsule-like bounding volume with halfWidth = 0.9 and halfDepth = 1.0.
+- Collisions are checked by projecting the cat to the next x/z position and testing against each walkable obstacle bounding box.
+- Movement is blocked if the projected cat bounds overlap an obstacle side and the cat is not on top of that obstacle.
+- If the cat is standing on top of an obstacle, the cat's y-position is snapped to the obstacle's top plus a bottom offset.
+- Ground is defined by `catBottomY <= 0`; the cat is grounded and clipped to `catBottomOffset`.
+
+5. Gravity and Jump Physics
+- Vertical velocity is stored in `catVelocity.y` and gravity is applied each frame with a constant gravity = 0.04.
+- Jump height is `jumpPower = 1.0` or increased by `runJumpMultiplier = 1.5` when running.
+- Initial jump is allowed only when `isGrounded`, the cat is not crouched, and the jump cooldown has expired.
+- Jump cooldown is currently set to 300 ms, preventing immediate repeated jumps.
+- During a jump, `catVelocity.y` is decremented by gravity each frame, and vertical position is updated.
+- The cat lands on either ground or obstacle tops and transitions to a landing state.
+
+6. Jump State Machine
+- jumpPhase values: none, start, air, end.
+- On jump input, jumpPhase transitions to `start`, a jumpStart animation is played, and vertical velocity is applied.
+- When `jumpStart` animation reaches near completion, the phase transitions to `air`.
+- While airborne and not grounded, the system uses `jumpAir` animation.
+- When landing occurs, jumpPhase becomes `end`, `jumpEnd` animation plays for `jumpEndDuration` (250 ms), and then the phase resets to `none`.
+- A separate animation cooldown `jumpAnimCooldown = 300` ms is used to prevent fast animation replay.
+
+7. Special Movement Modes
+- backHopActive and specialJumpActive are additional movement states that disable normal movement while active.
+- A back-hop or special jump moves the cat along predefined trajectories with separate update functions.
+- These special movements temporarily override the regular gravity/movement path.
+
+8. Animation System
+- The `CatAnimator` class in `cat-mmo/public/cat.js` centralizes animation state updates.
+- If the loaded model provides animation clips, the system uses Three.js mixers and actions to crossfade between clips.
+- If no animation clips are available, manual fallback animation is applied via bobbing and swaying transforms.
+- Attack animation is handled separately with a timed swing effect on an attack paw or fallback rotation.
+
+9. Animation Transitions and Priorities
+- Attack has priority over movement animations.
+- Desired action selection order in `animate()` is: jumpEnd > jumpStart > jumpAir > jumpEnd > attack > run/walk > idle.
+- Backward movement forces desired action to `walk` even if run conditions are active.
+- When using animation clips, the chosen action is played via `playCatAction()` and mixer updates each frame.
+
+10. Systems and File Responsibilities
+- `cat-mmo/public/index.html`: primary game loop, input handling, physics, movement, collision, jumping, camera follow, and animation action selection.
+- `cat-mmo/public/cat.js`: cat animation abstraction, fallback motion, action transitions, and attack timing.
+- `info/info.txt`: developer notes for intended behavior and outstanding corrections.
+
+11. Version / Soft Notes
+- This is an early prototype version focused on movement + animation behavior rather than complete gameplay.
+- The current implementation already supports basic forward/backward movement, rotation, hurt/attack placeholder handling and jump sequencing.
+- The main missing features are death animation, full jump animation correctness, crouch/sit state mapping, backward speed rules, and tail behavior.
+
+12. Navigation Map
+- Input -> movement direction -> collision block check -> position update.
+- If grounded and jump requested -> start jump sequence -> set vertical velocity -> play jumpStart.
+- Apply gravity every frame -> update vertical position -> detect landing -> play jumpEnd.
+- Choose desired animation based on current movement/jump/attack state -> play animation.
+- Use `CatAnimator.update()` to decide between clip-based or manual fallback animation.
+
+13. Important notes for future work
+- Keep the movement physics and animation decision logic separate as much as possible.
+- Maintain a clear jump state machine and avoid jumping while `specialJumpActive` or `backHopActive`.
+- Correct backward movement so `S` never triggers run speed.
+- Ensure `jumpStart` only begins when grounded, and `jumpEnd` plays exactly when landing.
+
+End of game logic overview.

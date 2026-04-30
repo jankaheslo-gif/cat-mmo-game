@@ -1,0 +1,53 @@
+GAME LOGIC TODO
+
+Project: Cat Game 2.1
+Folder: GAME_LOGICXX
+Primary references: cat-mmo/public/index.html, cat-mmo/public/cat.js, info/info.txt
+
+1. Confirmed tasks
+- [ ] Add a proper death animation when vitality points reach zero.
+- [ ] Ensure jump animation uses jumpStart for the beginning of every jump.
+- [ ] Ensure landing uses jumpEnd for the end of every jump.
+- [ ] Enforce a single jumpStart and single jumpEnd per jump sequence.
+- [ ] Keep jumpStart/jumpEnd animations gated by a cooldown (currently intended at 0.3 s).
+- [ ] Prevent backward running; backward movement should remain walking speed only.
+- [ ] Verify crouch and sit animation logic and ensure crouch lock matches intended mode.
+- [ ] Keep tail animation issues on hold until core movement and jump logic are stable.
+- [ ] Add explicit documentation of controls and movement rules into the code or README.
+- [ ] Review whether attack and jump animations should be mutually exclusive.
+
+2. Known behavior gaps
+- Jump sequence may currently allow the wrong animation when starting a second jump.
+- The code uses `lastJumpAnimTime`, but it is not consistently used to prevent repeated animations in all cases.
+- The current movement and obstacle collision logic may not fully support running on top of obstacles or correct step-up behavior.
+- Crouched movement speed multiplier and crouch interaction with jumping need clarification.
+- Death animation is mentioned in notes but not implemented anywhere in runtime code.
+- Backward walking is handled, but the logic should be reviewed to ensure it cannot enter a backward run path.
+
+3. Suggested improvements
+- [ ] Separate physics state from animation state so that movement decisions do not depend on current clip state.
+- [ ] Add a dedicated state machine for jump phases with clearly defined transitions and cooldown guards.
+- [ ] Track `isAttacking` and `isJumping` distinctly so each animation priority is explicit.
+- [ ] Add a small architecture note in code comments describing `CatAnimator` vs main loop responsibilities.
+- [ ] Add a `CONFLICTS` section in this file if issue counts grow larger than 5 items.
+
+4. Conflict / issue log
+- Issue: `info/info.txt` says "second jump needs to start also with jump start, not jump end." Current code mostly resets jumpPhase to `none` on jump press but may still rely on `jumpEnd` logic during landing.
+- Issue: `info/info.txt` says "death animation to losing all vitality points" but there is no vitality/death flow in the current main loop.
+- Issue: `info/info.txt` says run backward should be impossible, but the current code only forces desiredCatAction to `walk`; movement speed may still be mis-calculated if `keys['shift']` is held.
+- Issue: Tail is described as "still messed up" and should be postponed, but the animation system may still update tail motion in the main loop.
+
+5. Next implementation steps
+- [ ] Implement jump animation gating and ensure `lastJumpAnimTime` is used consistently.
+- [ ] Add a `death` or `dead` state and trigger a death animation / movement lock on vitality depletion.
+- [ ] Stabilize one jump sequence per press with a 300 ms animation/action cooldown.
+- [ ] Validate backward movement speed by checking `keys['s']` and disabling run multiplier.
+- [ ] Add notes to source files where `jumpPhase`, `lastJumpTime`, and `jumpEndTimer` are defined.
+
+6. Follow-up decisions needed
+- Clarify how crouch mode interacts with special jump and back-hop.
+- Decide whether `specialJumpActive` should completely override all other movement inputs.
+- Decide the exact animation names and fallback priorities for `jumpStart`, `jumpAir`, and `jumpEnd`.
+- Decide if `GAME_LOGICXX` should also contain a future code roadmap or only documentation.
+
+End of GAME_LOGIC_TODO.

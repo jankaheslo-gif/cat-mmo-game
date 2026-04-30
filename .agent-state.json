@@ -1,0 +1,10 @@
+{
+  "created": "2026-04-30T22:00:00Z",
+  "session_id": "overnight-2026-04-30",
+  "status": "initialized",
+  "tasks_completed": 0,
+  "tasks_failed": 0,
+  "runtime_seconds": 0,
+  "last_update": "2026-04-30T22:00:00Z",
+  "notes": "Initial state before overnight run"
+}
