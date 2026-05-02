@@ -175,6 +175,7 @@
       <div id="xpFill" class="hud-bar-fill"></div>
     </div>
   </div>
+  <div id="playerList" style="position: fixed; top: 10px; right: 10px; background: rgba(0,0,0,0.5); color: white; padding: 10px; font-size: 12px;">Players: You</div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/loaders/GLTFLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tween.js@18/dist/tween.umd.js"></script>
@@ -182,9 +183,10 @@
   <script src="config/stats.js"></script>
   <script src="cat.js"></script>
   <script>
+    const playerName = prompt("Enter your cat name:", "Cat" + Math.floor(Math.random()*100));
     const socket = io();
     let localPlayerId = null;
-    let remotePlayers = {}; // { id: { model, position, rotation } }
+    let remotePlayers = {}; // { id: { model, position, rotation, name } }
     let scene, camera, renderer, cat, mouse;
     let catModel = null;
     let mixer = null;
@@ -828,15 +830,15 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
       });
 
-      // Multiplayer event handlers
       socket.on('init', (data) => {
         localPlayerId = data.id;
         console.log('Received init:', data);
+        updatePlayerList();
       });
 
       socket.on('playerJoined', (data) => {
         console.log('Received playerJoined:', data);
-        remotePlayers[data.id] = { model: null, position: data.state.position, rotation: data.state.rotation };
+        remotePlayers[data.id] = { model: null, position: data.state.position, rotation: data.state.rotation, name: data.state.name };
         if (catModel) {
           const remoteCat = catModel.clone();
           remoteCat.position.set(data.state.position.x, data.state.position.y, data.state.position.z);
@@ -852,6 +854,7 @@
           scene.add(remoteBox);
           remotePlayers[data.id].model = remoteBox;
         }
+        updatePlayerList();
       });
 
       socket.on('playerLeft', (data) => {
@@ -860,6 +863,7 @@
           scene.remove(remotePlayers[data.id].model);
           delete remotePlayers[data.id];
         }
+        updatePlayerList();
       });
 
       socket.on('worldUpdate', (data) => {
@@ -868,7 +872,7 @@
           if (id !== localPlayerId) {
             if (!remotePlayers[id]) {
               // Add new remote player
-              remotePlayers[id] = { model: null, position: data[id].position, rotation: data[id].rotation };
+              remotePlayers[id] = { model: null, position: data[id].position, rotation: data[id].rotation, name: data[id].name };
               if (catModel) {
                 const remoteCat = catModel.clone();
                 remoteCat.position.set(data[id].position.x, data[id].position.y, data[id].position.z);
@@ -890,10 +894,20 @@
               remotePlayers[id].model.rotation.y = data[id].rotation;
               remotePlayers[id].position = data[id].position;
               remotePlayers[id].rotation = data[id].rotation;
+              remotePlayers[id].name = data[id].name;
             }
           }
         }
+        updatePlayerList();
       });
+
+      function updatePlayerList() {
+        const list = ['You (' + playerName + ')'];
+        for (const id in remotePlayers) {
+          list.push(remotePlayers[id].name);
+        }
+        document.getElementById('playerList').textContent = 'Players: ' + list.join(', ');
+      }
     }
 
     function getForwardVector() {
@@ -1898,8 +1912,8 @@
 
       // Send player state to server
       if (localPlayerId) {
-        console.log('Sending command:', { position: cat.position, rotation: cat.rotation.y });
-        socket.emit('command', { position: cat.position, rotation: cat.rotation.y });
+        console.log('Sending command:', { position: cat.position, rotation: cat.rotation.y, name: playerName });
+        socket.emit('command', { position: cat.position, rotation: cat.rotation.y, name: playerName });
       }
 
       // Update mobs

@@ -12,7 +12,7 @@ let players = {}; // Shared player state: { id: { position, rotation, ... } }
 
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
-  players[socket.id] = { position: { x: 0, y: 0, z: 0 }, rotation: 0 };
+  players[socket.id] = { position: { x: 0, y: 0, z: 0 }, rotation: 0, name: 'Unknown' };
   console.log('Players after connect:', Object.keys(players));
 
   socket.emit('init', { id: socket.id });
