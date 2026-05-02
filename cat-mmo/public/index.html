@@ -831,11 +831,11 @@
       // Multiplayer event handlers
       socket.on('init', (data) => {
         localPlayerId = data.id;
-        console.log('Local player ID:', localPlayerId);
+        console.log('Received init:', data);
       });
 
       socket.on('playerJoined', (data) => {
-        console.log('Player joined:', data.id);
+        console.log('Received playerJoined:', data);
         remotePlayers[data.id] = { model: null, position: data.state.position, rotation: data.state.rotation };
         if (catModel) {
           const remoteCat = catModel.clone();
@@ -855,7 +855,7 @@
       });
 
       socket.on('playerLeft', (data) => {
-        console.log('Player left:', data.id);
+        console.log('Received playerLeft:', data);
         if (remotePlayers[data.id]) {
           scene.remove(remotePlayers[data.id].model);
           delete remotePlayers[data.id];
@@ -863,7 +863,7 @@
       });
 
       socket.on('worldUpdate', (data) => {
-        console.log('World update:', data);
+        console.log('Received worldUpdate:', data);
         for (const id in data) {
           if (id !== localPlayerId) {
             if (!remotePlayers[id]) {
@@ -1898,6 +1898,7 @@
 
       // Send player state to server
       if (localPlayerId) {
+        console.log('Sending command:', { position: cat.position, rotation: cat.rotation.y });
         socket.emit('command', { position: cat.position, rotation: cat.rotation.y });
       }
 
