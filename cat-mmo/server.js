@@ -46,3 +46,9 @@ io.on('connection', (socket) => {
 server.listen(process.env.PORT || 3000, () => {
   console.log('Server running on port', process.env.PORT || 3000);
 });
+
+// Periodic world sync
+setInterval(() => {
+  io.emit('worldUpdate', players);
+  console.log('Periodic worldUpdate sent');
+}, 200);
