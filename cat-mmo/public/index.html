@@ -954,12 +954,33 @@
       socket.on('worldState', (data) => {
         data.players.forEach(p => {
           if (p.id === localPlayerId) return;
+          const x = parseFloat(p.tile.substring(1, 5)) || 0;
+          const z = parseFloat(p.tile.substring(5)) || 0;
+          
           if (!remotePlayers[p.id]) {
-            remotePlayers[p.id] = { box: createRemoteBox(), position: new THREE.Vector3() };
+            remotePlayers[p.id] = { box: createRemoteBox(), position: new THREE.Vector3(x, 0, z), rotation: p.rotation || 0 };
+            remotePlayers[p.id].box.position.set(x, 0, z);
+          } else {
+            remotePlayers[p.id].position.set(x, 0, z);
+            remotePlayers[p.id].rotation = p.rotation || 0;
+            if (remotePlayers[p.id].model) {
+              remotePlayers[p.id].model.position.set(x, 0, z);
+              remotePlayers[p.id].model.rotation.y = p.rotation || 0;
+            } else if (remotePlayers[p.id].box) {
+              remotePlayers[p.id].box.position.set(x, 0, z);
+              remotePlayers[p.id].box.rotation.y = p.rotation || 0;
+            }
           }
-          remotePlayers[p.id].position.set(0, 0, 0); // update later with real tile
           replaceBoxWithCat(p.id);
         });
+        
+        // Remove players no longer in worldState
+        for (const id in remotePlayers) {
+          if (!data.players.find(p => p.id === id)) {
+            scene.remove(remotePlayers[id].box || remotePlayers[id].model);
+            delete remotePlayers[id];
+          }
+        }
       });
 
       socket.on('playerLeft', (data) => {

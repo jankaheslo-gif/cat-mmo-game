@@ -1,55 +1,83 @@
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const http = require('http');
-const socketIo = require('socket.io');
+const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
+const io = new Server(server, { cors: { origin: '*' } });
 
-app.use(express.static('public'));
+const publicPathCandidate = path.join(__dirname, 'public');
+const fallbackPublicPath = path.join(__dirname, 'cat-mmo', 'public');
+const publicPath = fs.existsSync(publicPathCandidate)
+  ? publicPathCandidate
+  : fs.existsSync(fallbackPublicPath)
+  ? fallbackPublicPath
+  : publicPathCandidate;
 
-let players = {}; // Shared player state: { id: { position, rotation, ... } }
+console.log('Using public path:', publicPath);
+
+app.use(express.static(publicPath));
+
+app.get('/', (req, res) => {
+  const indexFile = path.join(publicPath, 'index.html');
+  if (!fs.existsSync(indexFile)) {
+    return res.status(500).send(`index.html not found at ${indexFile}`);
+  }
+  res.sendFile(indexFile);
+});
+
+const players = new Map();
 
 io.on('connection', (socket) => {
-  console.log('A user connected:', socket.id);
-  players[socket.id] = { position: { x: Math.random()*10 - 5, y: 0, z: Math.random()*10 - 5 }, rotation: 0, name: 'Unknown' };
-  console.log('Players after connect:', Object.keys(players));
-
-  // Send init with player ID
-  socket.emit('init', { id: socket.id });
-
-  // Broadcast new player to all others
-  socket.broadcast.emit('playerJoined', { id: socket.id, state: players[socket.id] });
-
-  // Send current world state to new client
-  socket.emit('worldState', players);
-
-  socket.on('command', (data) => {
-    console.log('Received command from', socket.id, ':', data);
-    if (players[socket.id]) {
-      players[socket.id] = { ...players[socket.id], ...data };
-      console.log('Updated players:', players);
-    }
+  console.log('Cat connected:', socket.id);
+  
+  players.set(socket.id, { 
+    id: socket.id,
+    tile: "T50005000", 
+    rotation: 0,
+    x: 0, 
+    z: 0 
   });
 
-  socket.on('setName', (name) => {
-    if (players[socket.id]) {
-      players[socket.id].name = name;
-      console.log('Set name for', socket.id, 'to', name);
+  // Send init to new player
+  socket.emit('init', { id: socket.id, tile: "T50005000" });
+
+  // Send all existing players to new player
+  const existingPlayers = Array.from(players.values());
+  socket.emit('worldState', { players: existingPlayers });
+
+  // Broadcast new player to others
+  socket.broadcast.emit('playerJoined', players.get(socket.id));
+
+  socket.on('command', (data) => {
+    const player = players.get(socket.id);
+    if (player && data.tile) {
+      player.tile = data.tile;
+      player.x = parseFloat(data.tile.substring(1, 5)) || 0; // rough parse
+      player.z = parseFloat(data.tile.substring(5)) || 0;
     }
+
+    io.emit('worldUpdate', {
+      playerId: socket.id,
+      cmd: data.cmd,
+      tile: data.tile,
+      timestamp: Date.now()
+    });
   });
 
   socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
-    delete players[socket.id];
-    console.log('Players after disconnect:', Object.keys(players));
-    // Broadcast removal
+    players.delete(socket.id);
     io.emit('playerLeft', { id: socket.id });
+    console.log('Cat left:', socket.id);
   });
 });
 
-// Fixed 100ms game tick for server authority
+// Broadcast full world state every 150ms
 setInterval(() => {
-  io.emit('worldState', players);
-  console.log('World state broadcast');
-}, 100);
+  const state = Array.from(players.values());
+  io.emit('worldState', { players: state });
+}, 150);
+
+server.listen(3000, () => console.log('✅ Server running → http://localhost:3000'));
