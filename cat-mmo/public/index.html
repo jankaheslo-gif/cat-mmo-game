@@ -186,7 +186,7 @@
     const playerName = prompt("Enter your cat name:", "Cat" + Math.floor(Math.random()*100));
     const socket = io();
     let localPlayerId = null;
-    let remotePlayers = {}; // { id: { model, box, position, rotation } }
+    let lastSentPosition = null;
 
     function createRemoteBox() {
       const geometry = new THREE.BoxGeometry(1, 1, 1);
@@ -886,6 +886,7 @@
               // Update existing
               remotePlayers[id].position.set(data[id].position.x, data[id].position.y, data[id].position.z);
               remotePlayers[id].rotation = data[id].rotation;
+              console.log('Updating remote', id, 'to', data[id].position.x.toFixed(2), data[id].position.z.toFixed(2));
               if (remotePlayers[id].model) {
                 remotePlayers[id].model.position.copy(remotePlayers[id].position);
                 remotePlayers[id].model.rotation.y = remotePlayers[id].rotation;
@@ -1909,9 +1910,10 @@
       wasGroundedLastFrame = isGrounded;
 
       // Send player state to server
-      if (localPlayerId) {
-        console.log('Sending command:', { position: cat.position, rotation: cat.rotation.y, name: playerName });
+      if (localPlayerId && (!lastSentPosition || cat.position.distanceTo(lastSentPosition) > 0.1)) {
+        console.log('Sending position:', cat.position.x.toFixed(2), cat.position.z.toFixed(2));
         socket.emit('command', { position: cat.position, rotation: cat.rotation.y, name: playerName });
+        lastSentPosition = cat.position.clone();
       }
 
       // Update mobs
