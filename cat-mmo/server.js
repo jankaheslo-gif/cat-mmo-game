@@ -48,8 +48,8 @@ io.on('connection', (socket) => {
   });
 });
 
-// Fixed 20Hz game tick for server authority
+// Fixed 100ms game tick for server authority
 setInterval(() => {
   io.emit('worldState', players);
   console.log('World state broadcast');
-}, 50);
+}, 100);
