@@ -889,32 +889,47 @@
 
       function processWorldState(data) {
         console.log('Processing worldState:', data);
-        for (const id in data) {
-          if (id !== localPlayerId) {
-            if (!remotePlayers[id]) {
-              // Add new remote player
-              remotePlayers[id] = { model: null, box: createRemoteBox(), position: new THREE.Vector3(data[id].position.x, data[id].position.y, data[id].position.z), rotation: data[id].rotation, name: data[id].name || 'Unknown' };
-              if (catModel) {
-                replaceBoxWithCat(id);
-              }
-            } else {
-              // Update existing
-              remotePlayers[id].position.set(data[id].position.x, data[id].position.y, data[id].position.z);
-              remotePlayers[id].rotation = data[id].rotation;
-              console.log('Updating remote', id, 'to', data[id].position.x.toFixed(2), data[id].position.z.toFixed(2));
-              if (remotePlayers[id].model) {
-                remotePlayers[id].model.position.copy(remotePlayers[id].position);
-                remotePlayers[id].model.rotation.y = remotePlayers[id].rotation;
-              } else if (remotePlayers[id].box) {
-                remotePlayers[id].box.position.copy(remotePlayers[id].position);
-                remotePlayers[id].box.rotation.y = remotePlayers[id].rotation;
-              }
+        const players = data.players || [];
+        const playerIds = new Set();
+        
+        for (const player of players) {
+          if (player.id === localPlayerId) continue;
+          playerIds.add(player.id);
+          
+          const x = parseFloat(player.tile.substring(1, 5)) || 0;
+          const z = parseFloat(player.tile.substring(5)) || 0;
+          
+          if (!remotePlayers[player.id]) {
+            // Add new remote player
+            remotePlayers[player.id] = { 
+              model: null, 
+              box: createRemoteBox(), 
+              position: new THREE.Vector3(x, 0, z), 
+              rotation: player.rotation || 0, 
+              name: player.name || 'Unknown' 
+            };
+            remotePlayers[player.id].box.position.set(x, 0, z);
+            if (sharedCatModel) {
+              replaceBoxWithCat(player.id);
+            }
+          } else {
+            // Update existing
+            remotePlayers[player.id].position.set(x, 0, z);
+            remotePlayers[player.id].rotation = player.rotation || 0;
+            console.log('Updating remote', player.id, 'to tile', player.tile, '(', x.toFixed(2), ',', z.toFixed(2), ')');
+            if (remotePlayers[player.id].model) {
+              remotePlayers[player.id].model.position.copy(remotePlayers[player.id].position);
+              remotePlayers[player.id].model.rotation.y = remotePlayers[player.id].rotation;
+            } else if (remotePlayers[player.id].box) {
+              remotePlayers[player.id].box.position.copy(remotePlayers[player.id].position);
+              remotePlayers[player.id].box.rotation.y = remotePlayers[player.id].rotation;
             }
           }
         }
+        
         // Remove players not in state
         for (const id in remotePlayers) {
-          if (!data[id]) {
+          if (!playerIds.has(id)) {
             if (remotePlayers[id].model) scene.remove(remotePlayers[id].model);
             if (remotePlayers[id].box) scene.remove(remotePlayers[id].box);
             delete remotePlayers[id];
@@ -1964,10 +1979,13 @@
       // Update frame state for next iteration
       wasGroundedLastFrame = isGrounded;
 
-      // Send player state to server
+      // Send player state to server (tile-based)
       if (localPlayerId && (!lastSentPosition || cat.position.distanceTo(lastSentPosition) > 0.1)) {
-        console.log('Sending position:', cat.position.x.toFixed(2), cat.position.z.toFixed(2));
-        socket.emit('command', { position: cat.position, rotation: cat.rotation.y, name: playerName });
+        const tileX = Math.round(cat.position.x).toString().padStart(4, '0');
+        const tileZ = Math.round(cat.position.z).toString().padStart(4, '0');
+        const tile = 'T' + tileX + tileZ;
+        console.log('Sending tile:', tile, 'position:', cat.position.x.toFixed(2), cat.position.z.toFixed(2));
+        socket.emit('command', { tile: tile, rotation: cat.rotation.y });
         lastSentPosition = cat.position.clone();
       }
 
