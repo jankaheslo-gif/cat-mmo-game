@@ -187,6 +187,8 @@
     const socket = io();
     let localPlayerId = null;
     let lastSentPosition = null;
+    let remotePlayers = {};
+    let pendingWorldState = null;
 
     function createRemoteBox() {
       const geometry = new THREE.BoxGeometry(1, 1, 1);
@@ -640,19 +642,20 @@
 
       const loader = new THREE.GLTFLoader();
       const animationSources = {
-        idle: 'models/cat_idle/animations/idle/model_idle.glb',
-        walk: 'models/cat_walk/animations/walk/model_walk.glb',
-        run: 'models/cat_run/animations/run/model_run.glb',
-        jumpStart: 'models/cat_jump_start/animations/jump_start/model_jump_start.glb',
-        jumpAir: 'models/cat_jump_air/animations/jump_fall/model_jump_fall.glb',
-        jumpEnd: 'models/cat_jump_end/animations/jump_end/model_jump_end.glb',
-        attack: 'models/cat_attack/animations/paw_attack/model_paw_attack.glb'
+        idle: '/models/cat_idle/animations/idle/model_idle.glb',
+        walk: '/models/cat_walk/animations/walk/model_walk.glb',
+        run: '/models/cat_run/animations/run/model_run.glb',
+        jumpStart: '/models/cat_jump_start/animations/jump_start/model_jump_start.glb',
+        jumpAir: '/models/cat_jump_air/animations/jump_fall/model_jump_fall.glb',
+        jumpEnd: '/models/cat_jump_end/animations/jump_end/model_jump_end.glb',
+        attack: '/models/cat_attack/animations/paw_attack/model_paw_attack.glb'
       };
       const baseModelUrl = animationSources.idle + '?v=' + Date.now();
       showModelLoading();
 
       const loadModel = (url) => new Promise((resolve, reject) => {
-        loader.load(url, resolve, undefined, reject);
+        console.log('Loading model:', url);
+        loader.load(url, resolve, (progress) => console.log('Progress for', url, progress), reject);
       });
 
       loadModel(baseModelUrl)
@@ -845,40 +848,13 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
       });
 
-      socket.on('init', (data) => {
-        localPlayerId = data.id;
-        console.log('Received init:', data);
-        updatePlayerList();
-      });
-
-      socket.on('playerJoined', (data) => {
-        console.log('Received playerJoined:', data);
-        remotePlayers[data.id] = { model: null, box: createRemoteBox(), position: new THREE.Vector3(data.state.position.x, data.state.position.y, data.state.position.z), rotation: data.state.rotation };
-        remotePlayers[data.id].box.position.copy(remotePlayers[data.id].position);
-        remotePlayers[data.id].box.rotation.y = remotePlayers[data.id].rotation;
-        if (catModel) {
-          replaceBoxWithCat(data.id);
-        }
-        updatePlayerList();
-      });
-
-      socket.on('playerLeft', (data) => {
-        console.log('Received playerLeft:', data);
-        if (remotePlayers[data.id]) {
-          if (remotePlayers[data.id].model) scene.remove(remotePlayers[data.id].model);
-          if (remotePlayers[data.id].box) scene.remove(remotePlayers[data.id].box);
-          delete remotePlayers[data.id];
-        }
-        updatePlayerList();
-      });
-
-      socket.on('worldState', (data) => {
-        console.log('Received worldState:', data);
+      function processWorldState(data) {
+        console.log('Processing worldState:', data);
         for (const id in data) {
           if (id !== localPlayerId) {
             if (!remotePlayers[id]) {
               // Add new remote player
-              remotePlayers[id] = { model: null, box: createRemoteBox(), position: new THREE.Vector3(data[id].position.x, data[id].position.y, data[id].position.z), rotation: data[id].rotation };
+              remotePlayers[id] = { model: null, box: createRemoteBox(), position: new THREE.Vector3(data[id].position.x, data[id].position.y, data[id].position.z), rotation: data[id].rotation, name: data[id].name || 'Unknown' };
               if (catModel) {
                 replaceBoxWithCat(id);
               }
@@ -906,6 +882,47 @@
           }
         }
         updatePlayerList();
+      }
+
+      socket.on('init', (data) => {
+        localPlayerId = data.id;
+        console.log('Received init:', data);
+        socket.emit('setName', playerName);
+        if (pendingWorldState) {
+          processWorldState(pendingWorldState);
+          pendingWorldState = null;
+        }
+        updatePlayerList();
+      });
+
+      socket.on('playerJoined', (data) => {
+        console.log('Received playerJoined:', data);
+        remotePlayers[data.id] = { model: null, box: createRemoteBox(), position: new THREE.Vector3(data.state.position.x, data.state.position.y, data.state.position.z), rotation: data.state.rotation };
+        remotePlayers[data.id].box.position.copy(remotePlayers[data.id].position);
+        remotePlayers[data.id].box.rotation.y = remotePlayers[data.id].rotation;
+        if (catModel) {
+          replaceBoxWithCat(data.id);
+        }
+        updatePlayerList();
+      });
+
+      socket.on('playerLeft', (data) => {
+        console.log('Received playerLeft:', data);
+        if (remotePlayers[data.id]) {
+          if (remotePlayers[data.id].model) scene.remove(remotePlayers[data.id].model);
+          if (remotePlayers[data.id].box) scene.remove(remotePlayers[data.id].box);
+          delete remotePlayers[data.id];
+        }
+        updatePlayerList();
+      });
+
+      socket.on('worldState', (data) => {
+        if (!localPlayerId) {
+          console.log('Deferring worldState until init');
+          pendingWorldState = data;
+          return;
+        }
+        processWorldState(data);
       });
 
       function updatePlayerList() {

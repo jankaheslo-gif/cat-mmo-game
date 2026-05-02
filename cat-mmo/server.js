@@ -32,6 +32,13 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('setName', (name) => {
+    if (players[socket.id]) {
+      players[socket.id].name = name;
+      console.log('Set name for', socket.id, 'to', name);
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
     delete players[socket.id];
