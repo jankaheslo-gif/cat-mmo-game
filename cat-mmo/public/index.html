@@ -940,34 +940,33 @@
 
       socket.on('init', (data) => {
         localPlayerId = data.id;
-        console.log('Received init:', data);
-        socket.emit('setName', playerName);
-        updatePlayerList();
       });
 
-      socket.on('playerJoined', (data) => {
-        console.log('Received playerJoined:', data);
-        remotePlayers[data.id] = { model: null, box: createRemoteBox(), position: new THREE.Vector3(data.state.position.x, data.state.position.y, data.state.position.z), rotation: data.state.rotation };
-        remotePlayers[data.id].box.position.copy(remotePlayers[data.id].position);
-        remotePlayers[data.id].box.rotation.y = remotePlayers[data.id].rotation;
-        if (catModel) {
-          replaceBoxWithCat(data.id);
+      socket.on('playerJoined', (player) => {
+        if (player.id === localPlayerId) return;
+        if (!remotePlayers[player.id]) {
+          remotePlayers[player.id] = { box: createRemoteBox(), position: new THREE.Vector3() };
+          remotePlayers[player.id].box.position.set(0, 0, 0);
+          replaceBoxWithCat(player.id);
         }
-        updatePlayerList();
-      });
-
-      socket.on('playerLeft', (data) => {
-        console.log('Received playerLeft:', data);
-        if (remotePlayers[data.id]) {
-          if (remotePlayers[data.id].model) scene.remove(remotePlayers[data.id].model);
-          if (remotePlayers[data.id].box) scene.remove(remotePlayers[data.id].box);
-          delete remotePlayers[data.id];
-        }
-        updatePlayerList();
       });
 
       socket.on('worldState', (data) => {
-        processWorldState(data);
+        data.players.forEach(p => {
+          if (p.id === localPlayerId) return;
+          if (!remotePlayers[p.id]) {
+            remotePlayers[p.id] = { box: createRemoteBox(), position: new THREE.Vector3() };
+          }
+          remotePlayers[p.id].position.set(0, 0, 0); // update later with real tile
+          replaceBoxWithCat(p.id);
+        });
+      });
+
+      socket.on('playerLeft', (data) => {
+        if (remotePlayers[data.id]) {
+          scene.remove(remotePlayers[data.id].box || remotePlayers[data.id].model);
+          delete remotePlayers[data.id];
+        }
       });
 
       function updatePlayerList() {
