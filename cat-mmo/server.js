@@ -1,48 +1,47 @@
 const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
+const socketIo = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = socketIo(server);
 
-// Disable caching for development
-app.use((req, res, next) => {
-  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
-  res.set('Pragma', 'no-cache');
-  res.set('Expires', '0');
-  next();
-});
-
-// IMPORTANT: Serve the public folder + root route
 app.use(express.static('public'));
 
-app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/public/index.html');
-});
-
-const players = new Map();
+let players = {}; // Shared player state: { id: { position, rotation, ... } }
 
 io.on('connection', (socket) => {
-  console.log('Cat connected:', socket.id);
-  players.set(socket.id, { tile: "T50005000", rotation: 0 });
+  console.log('A user connected:', socket.id);
 
-  socket.emit('init', { id: socket.id, tile: "T50005000" });
+  // Initialize new player with default state
+  players[socket.id] = { position: { x: 0, y: 0, z: 0 }, rotation: 0 };
+
+  // Send init with player ID
+  socket.emit('init', { id: socket.id });
+
+  // Broadcast new player to others
+  socket.broadcast.emit('playerJoined', { id: socket.id, state: players[socket.id] });
+
+  // Send current players to new player
+  socket.emit('worldUpdate', players);
 
   socket.on('command', (data) => {
-    io.emit('worldUpdate', {
-      playerId: socket.id,
-      cmd: data.cmd,
-      tile: data.tile || "T50005000",
-      obj: data.obj,
-      timestamp: Date.now()
-    });
+    // Update local player state (assume data has position/rotation updates)
+    if (players[socket.id]) {
+      players[socket.id] = { ...players[socket.id], ...data };
+    }
+    // Broadcast updated world state to all clients
+    io.emit('worldUpdate', players);
   });
 
   socket.on('disconnect', () => {
-    players.delete(socket.id);
-    console.log('Cat left:', socket.id);
+    console.log('User disconnected:', socket.id);
+    delete players[socket.id];
+    // Broadcast removal
+    socket.broadcast.emit('playerLeft', { id: socket.id });
   });
 });
 
-server.listen(3000, () => console.log('✅ Server running → http://localhost:3000'));
+server.listen(process.env.PORT || 3000, () => {
+  console.log('Server running on port', process.env.PORT || 3000);
+});

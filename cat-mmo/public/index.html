@@ -183,6 +183,8 @@
   <script src="cat.js"></script>
   <script>
     const socket = io();
+    let localPlayerId = null;
+    let remotePlayers = {}; // { id: { model, position, rotation } }
     let scene, camera, renderer, cat, mouse;
     let catModel = null;
     let mixer = null;
@@ -720,6 +722,17 @@
           // Initialize the custom animator
           catAnimator = new CatAnimator(catModel, mixer, catActions);
 
+          // Add any pending remote players
+          for (const id in remotePlayers) {
+            if (!remotePlayers[id].model) {
+              const remoteCat = catModel.clone();
+              remoteCat.position.set(remotePlayers[id].position.x, remotePlayers[id].position.y, remotePlayers[id].position.z);
+              remoteCat.rotation.y = remotePlayers[id].rotation;
+              scene.add(remoteCat);
+              remotePlayers[id].model = remoteCat;
+            }
+          }
+
           hideModelLoading();
         })
         .catch((error) => {
@@ -815,8 +828,71 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
       });
 
+      // Multiplayer event handlers
+      socket.on('init', (data) => {
+        localPlayerId = data.id;
+        console.log('Local player ID:', localPlayerId);
+      });
+
+      socket.on('playerJoined', (data) => {
+        console.log('Player joined:', data.id);
+        remotePlayers[data.id] = { model: null, position: data.state.position, rotation: data.state.rotation };
+        if (catModel) {
+          const remoteCat = catModel.clone();
+          remoteCat.position.set(data.state.position.x, data.state.position.y, data.state.position.z);
+          remoteCat.rotation.y = data.state.rotation;
+          scene.add(remoteCat);
+          remotePlayers[data.id].model = remoteCat;
+        } else {
+          // Fallback: create a simple box for remote player
+          const geometry = new THREE.BoxGeometry(1, 1, 1);
+          const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+          const remoteBox = new THREE.Mesh(geometry, material);
+          remoteBox.position.set(data.state.position.x, data.state.position.y, data.state.position.z);
+          scene.add(remoteBox);
+          remotePlayers[data.id].model = remoteBox;
+        }
+      });
+
+      socket.on('playerLeft', (data) => {
+        console.log('Player left:', data.id);
+        if (remotePlayers[data.id]) {
+          scene.remove(remotePlayers[data.id].model);
+          delete remotePlayers[data.id];
+        }
+      });
+
       socket.on('worldUpdate', (data) => {
-        console.log('SDN Command:', data.cmd);
+        console.log('World update:', data);
+        for (const id in data) {
+          if (id !== localPlayerId) {
+            if (!remotePlayers[id]) {
+              // Add new remote player
+              remotePlayers[id] = { model: null, position: data[id].position, rotation: data[id].rotation };
+              if (catModel) {
+                const remoteCat = catModel.clone();
+                remoteCat.position.set(data[id].position.x, data[id].position.y, data[id].position.z);
+                remoteCat.rotation.y = data[id].rotation;
+                scene.add(remoteCat);
+                remotePlayers[id].model = remoteCat;
+              } else {
+                // Fallback: create a simple box
+                const geometry = new THREE.BoxGeometry(1, 1, 1);
+                const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+                const remoteBox = new THREE.Mesh(geometry, material);
+                remoteBox.position.set(data[id].position.x, data[id].position.y, data[id].position.z);
+                scene.add(remoteBox);
+                remotePlayers[id].model = remoteBox;
+              }
+            } else {
+              // Update existing
+              remotePlayers[id].model.position.set(data[id].position.x, data[id].position.y, data[id].position.z);
+              remotePlayers[id].model.rotation.y = data[id].rotation;
+              remotePlayers[id].position = data[id].position;
+              remotePlayers[id].rotation = data[id].rotation;
+            }
+          }
+        }
       });
     }
 
@@ -1820,11 +1896,10 @@
       // Update frame state for next iteration
       wasGroundedLastFrame = isGrounded;
 
-      // Send commands to server for SDN world updates
-      if (keys['w']) socket.emit('command', { cmd: "00001" });
-      if (keys['a']) socket.emit('command', { cmd: "00002" });
-      if (keys['d']) socket.emit('command', { cmd: "00003" });
-      if (keys[' ']) socket.emit('command', { cmd: "00004" });
+      // Send player state to server
+      if (localPlayerId) {
+        socket.emit('command', { position: cat.position, rotation: cat.rotation.y });
+      }
 
       // Update mobs
       mobs.forEach(mob => mob.update(delta));
