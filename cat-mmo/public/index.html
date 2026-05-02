@@ -186,7 +186,28 @@
     const playerName = prompt("Enter your cat name:", "Cat" + Math.floor(Math.random()*100));
     const socket = io();
     let localPlayerId = null;
-    let remotePlayers = {}; // { id: { model, position, rotation, name } }
+    let remotePlayers = {}; // { id: { model, box, position, rotation } }
+
+    function createRemoteBox() {
+      const geometry = new THREE.BoxGeometry(1, 1, 1);
+      const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+      const box = new THREE.Mesh(geometry, material);
+      scene.add(box);
+      return box;
+    }
+
+    function replaceBoxWithCat(id) {
+      if (!catModel || !remotePlayers[id] || !remotePlayers[id].box) return;
+      scene.remove(remotePlayers[id].box);
+      remotePlayers[id].box.geometry.dispose();
+      remotePlayers[id].box.material.dispose();
+      const remoteCat = catModel.clone();
+      remoteCat.position.copy(remotePlayers[id].position);
+      remoteCat.rotation.y = remotePlayers[id].rotation;
+      scene.add(remoteCat);
+      remotePlayers[id].model = remoteCat;
+      remotePlayers[id].box = null;
+    }
     let scene, camera, renderer, cat, mouse;
     let catModel = null;
     let mixer = null;
@@ -724,15 +745,9 @@
           // Initialize the custom animator
           catAnimator = new CatAnimator(catModel, mixer, catActions);
 
-          // Add any pending remote players
+          // Replace any boxes with cats
           for (const id in remotePlayers) {
-            if (!remotePlayers[id].model) {
-              const remoteCat = catModel.clone();
-              remoteCat.position.set(remotePlayers[id].position.x, remotePlayers[id].position.y, remotePlayers[id].position.z);
-              remoteCat.rotation.y = remotePlayers[id].rotation;
-              scene.add(remoteCat);
-              remotePlayers[id].model = remoteCat;
-            }
+            replaceBoxWithCat(id);
           }
 
           hideModelLoading();
@@ -838,21 +853,11 @@
 
       socket.on('playerJoined', (data) => {
         console.log('Received playerJoined:', data);
-        remotePlayers[data.id] = { model: null, position: data.state.position, rotation: data.state.rotation, name: data.state.name };
+        remotePlayers[data.id] = { model: null, box: createRemoteBox(), position: new THREE.Vector3(data.state.position.x, data.state.position.y, data.state.position.z), rotation: data.state.rotation };
+        remotePlayers[data.id].box.position.copy(remotePlayers[data.id].position);
+        remotePlayers[data.id].box.rotation.y = remotePlayers[data.id].rotation;
         if (catModel) {
-          const remoteCat = catModel.clone();
-          remoteCat.position.set(data.state.position.x, data.state.position.y, data.state.position.z);
-          remoteCat.rotation.y = data.state.rotation;
-          scene.add(remoteCat);
-          remotePlayers[data.id].model = remoteCat;
-        } else {
-          // Fallback: create a simple box for remote player
-          const geometry = new THREE.BoxGeometry(1, 1, 1);
-          const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-          const remoteBox = new THREE.Mesh(geometry, material);
-          remoteBox.position.set(data.state.position.x, data.state.position.y, data.state.position.z);
-          scene.add(remoteBox);
-          remotePlayers[data.id].model = remoteBox;
+          replaceBoxWithCat(data.id);
         }
         updatePlayerList();
       });
@@ -860,7 +865,8 @@
       socket.on('playerLeft', (data) => {
         console.log('Received playerLeft:', data);
         if (remotePlayers[data.id]) {
-          scene.remove(remotePlayers[data.id].model);
+          if (remotePlayers[data.id].model) scene.remove(remotePlayers[data.id].model);
+          if (remotePlayers[data.id].box) scene.remove(remotePlayers[data.id].box);
           delete remotePlayers[data.id];
         }
         updatePlayerList();
@@ -872,29 +878,21 @@
           if (id !== localPlayerId) {
             if (!remotePlayers[id]) {
               // Add new remote player
-              remotePlayers[id] = { model: null, position: data[id].position, rotation: data[id].rotation, name: data[id].name };
+              remotePlayers[id] = { model: null, box: createRemoteBox(), position: new THREE.Vector3(data[id].position.x, data[id].position.y, data[id].position.z), rotation: data[id].rotation };
               if (catModel) {
-                const remoteCat = catModel.clone();
-                remoteCat.position.set(data[id].position.x, data[id].position.y, data[id].position.z);
-                remoteCat.rotation.y = data[id].rotation;
-                scene.add(remoteCat);
-                remotePlayers[id].model = remoteCat;
-              } else {
-                // Fallback: create a simple box
-                const geometry = new THREE.BoxGeometry(1, 1, 1);
-                const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-                const remoteBox = new THREE.Mesh(geometry, material);
-                remoteBox.position.set(data[id].position.x, data[id].position.y, data[id].position.z);
-                scene.add(remoteBox);
-                remotePlayers[id].model = remoteBox;
+                replaceBoxWithCat(id);
               }
             } else {
               // Update existing
-              remotePlayers[id].model.position.set(data[id].position.x, data[id].position.y, data[id].position.z);
-              remotePlayers[id].model.rotation.y = data[id].rotation;
-              remotePlayers[id].position = data[id].position;
+              remotePlayers[id].position.set(data[id].position.x, data[id].position.y, data[id].position.z);
               remotePlayers[id].rotation = data[id].rotation;
-              remotePlayers[id].name = data[id].name;
+              if (remotePlayers[id].model) {
+                remotePlayers[id].model.position.copy(remotePlayers[id].position);
+                remotePlayers[id].model.rotation.y = remotePlayers[id].rotation;
+              } else if (remotePlayers[id].box) {
+                remotePlayers[id].box.position.copy(remotePlayers[id].position);
+                remotePlayers[id].box.rotation.y = remotePlayers[id].rotation;
+              }
             }
           }
         }
