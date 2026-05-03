@@ -200,13 +200,17 @@ socket.on('worldState', (data) => {
     const x = parseFloat(p.tile?.substring(1,5)) || 0;
     const z = parseFloat(p.tile?.substring(5)) || 0;
     if (!remotePlayers[p.id]) {
-      remotePlayers[p.id] = { box: createRemoteBox(), position: new THREE.Vector3(x, 0, z) };
+      remotePlayers[p.id] = { box: createRemoteBox(), position: new THREE.Vector3(x, 2, z) };
+      scene.add(remotePlayers[p.id].box); // force add
     }
-    remotePlayers[p.id].position.set(x, 0, z);
-    remotePlayers[p.id].position.set(x, 1, z); // force y = 1 to see it
-    if (remotePlayers[p.id].model) remotePlayers[p.id].model.position.set(x, 0, z);
-    else if (remotePlayers[p.id].box) remotePlayers[p.id].box.position.set(x, 0, z);
-    replaceBoxWithCat(p.id);
+    remotePlayers[p.id].position.set(x, 2, z);
+    if (remotePlayers[p.id].box) {
+      remotePlayers[p.id].box.position.set(x, 2, z);
+    }
+    if (remotePlayers[p.id].model) {
+      remotePlayers[p.id].model.position.set(x, 0, z);
+    }
+    // do NOT call replaceBoxWithCat here yet
   });
 });
 
@@ -232,7 +236,7 @@ socket.on('playerLeft', (data) => {
     let sharedModelLoading = false;
 
     function createRemoteBox() {
-      const geometry = new THREE.BoxGeometry(1, 1, 1);
+      const geometry = new THREE.BoxGeometry(3, 3, 3);
       const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
       const box = new THREE.Mesh(geometry, material);
       scene.add(box);
