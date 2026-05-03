@@ -186,48 +186,6 @@
     const playerName = prompt("Enter your cat name:", "Cat" + Math.floor(Math.random()*100));
     const socket = io();
 
-socket.on('playerJoined', (player) => {
-  if (player.id === localPlayerId) return;
-  if (!remotePlayers[player.id]) {
-    remotePlayers[player.id] = { box: createRemoteBox(), position: new THREE.Vector3() };
-  }
-  replaceBoxWithCat(player.id);
-});
-
-socket.on('worldState', (data) => {
-  data.players.forEach(p => {
-    if (p.id === localPlayerId) return;
-    const x = parseFloat(p.tile?.substring(1,5)) || 0;
-    const z = parseFloat(p.tile?.substring(5)) || 0;
-    if (!remotePlayers[p.id]) {
-      remotePlayers[p.id] = { box: createRemoteBox(), position: new THREE.Vector3(x, 2, z) };
-      scene.add(remotePlayers[p.id].box); // force add
-    }
-    remotePlayers[p.id].position.set(x, 2, z);
-    if (remotePlayers[p.id].box) {
-      remotePlayers[p.id].box.position.set(x, 2, z);
-    }
-    if (remotePlayers[p.id].model) {
-      remotePlayers[p.id].model.position.set(x, 0, z);
-    }
-    // do NOT call replaceBoxWithCat here yet
-  });
-});
-
-socket.on('playerLeft', (data) => {
-  if (remotePlayers[data.id]) {
-    scene.remove(remotePlayers[data.id].box || remotePlayers[data.id].model);
-    delete remotePlayers[data.id];
-  }
-});
-
-    socket.on('playerLeft', (data) => {
-      if (remotePlayers[data.id]) {
-        scene.remove(remotePlayers[data.id].box || remotePlayers[data.id].model);
-        delete remotePlayers[data.id];
-      }
-    });
-
     let localPlayerId = null;
     let lastSentPosition = null;
     let remotePlayers = {};
@@ -988,9 +946,9 @@ socket.on('playerLeft', (data) => {
       socket.on('playerJoined', (player) => {
         if (player.id === localPlayerId) return;
         if (!remotePlayers[player.id]) {
-          remotePlayers[player.id] = { box: createRemoteBox(), position: new THREE.Vector3() };
+          remotePlayers[player.id] = { box: createRemoteBox(), position: new THREE.Vector3(0, 2, 0), model: null, rotation: 0, name: player.name || 'Unknown' };
+          remotePlayers[player.id].box.position.set(0, 2, 0);
         }
-        replaceBoxWithCat(player.id);
       });
 
       socket.on('worldState', (data) => {
@@ -999,12 +957,24 @@ socket.on('playerLeft', (data) => {
           const x = parseFloat(p.tile?.substring(1,5)) || 0;
           const z = parseFloat(p.tile?.substring(5)) || 0;
           if (!remotePlayers[p.id]) {
-            remotePlayers[p.id] = { box: createRemoteBox(), position: new THREE.Vector3(x, 0, z) };
+            remotePlayers[p.id] = {
+              model: null,
+              box: createRemoteBox(),
+              position: new THREE.Vector3(x, 2, z),
+              rotation: p.rotation || 0,
+              name: p.name || 'Unknown'
+            };
+            remotePlayers[p.id].box.position.set(x, 2, z);
+            scene.add(remotePlayers[p.id].box); // force add
           }
-          remotePlayers[p.id].position.set(x, 1, z); // force y = 1 to see it
-          if (remotePlayers[p.id].model) remotePlayers[p.id].model.position.set(x, 1, z);
-          else if (remotePlayers[p.id].box) remotePlayers[p.id].box.position.set(x, 1, z);
-          replaceBoxWithCat(p.id);
+          remotePlayers[p.id].position.set(x, 2, z);
+          if (remotePlayers[p.id].box) {
+            remotePlayers[p.id].box.position.set(x, 2, z);
+          }
+          if (remotePlayers[p.id].model) {
+            remotePlayers[p.id].model.position.set(x, 2, z);
+          }
+          // do NOT call replaceBoxWithCat here yet
         });
       });
 
